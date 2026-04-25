@@ -1,0 +1,16 @@
+{
+  "name": "@centerpeace/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "echo \"(no lint configured for @centerpeace/db yet)\"",
+    "typecheck": "tsc --noEmit",
+    "build": "echo \"(no build step yet \u2014 schema lands in M0/M1)\""
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

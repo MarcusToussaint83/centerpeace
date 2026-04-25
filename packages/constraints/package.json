@@ -1,0 +1,16 @@
+{
+  "name": "@centerpeace/constraints",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "echo \"(no lint configured for @centerpeace/constraints yet)\"",
+    "typecheck": "tsc --noEmit",
+    "build": "echo \"(no build step yet \u2014 solver lands in M6)\""
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

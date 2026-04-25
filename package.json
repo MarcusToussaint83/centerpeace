@@ -1,0 +1,34 @@
+{
+  "name": "centerpeace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Open-source seating chart tool for nonprofit fundraising events.",
+  "license": "MIT",
+  "author": "Marcus Toussaint <marcus_toussaint@tsco.org>",
+  "homepage": "https://github.com/MarcusToussaint83/centerpeace",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MarcusToussaint83/centerpeace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MarcusToussaint83/centerpeace/issues"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @centerpeace/web dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @centerpeace/web start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "prettier-plugin-tailwindcss": "^0.6.8",
+    "typescript": "^5.6.3"
+  }
+}
