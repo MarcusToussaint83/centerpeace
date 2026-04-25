@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type Konva from "konva";
-import { Stage, Layer, Circle, Group, Text } from "react-konva";
+import { Stage, Layer, Circle, Group, Line, Text } from "react-konva";
 
 import { useShallow } from "zustand/react/shallow";
 
@@ -10,8 +10,10 @@ import {
   useEventStore,
   selectGuestForSeat,
   selectTableOccupancy,
+  selectEvaluatedConstraints,
+  selectViolatedSeatKeys,
 } from "@/lib/store";
-import { seatKey, type CenterpeaceTable } from "@/lib/types";
+import { seatKey, parseSeatKey, type CenterpeaceTable } from "@/lib/types";
 
 const TABLE_RADIUS = 70;
 const SEAT_RADIUS = 16;
@@ -107,6 +109,9 @@ export function EventCanvas() {
         onMouseLeave={endDrag}
         style={{ cursor: dragStart.current ? "grabbing" : "default" }}
       >
+        <Layer listening={false}>
+          <ConstraintLines />
+        </Layer>
         <Layer>
           {tables.map((table) => (
             <TableNode key={table.id} table={table} />
@@ -115,6 +120,86 @@ export function EventCanvas() {
       </Stage>
       <CanvasOverlays />
     </div>
+  );
+}
+
+/**
+ * Compute the absolute (canvas-world) position of a seat given its table.
+ * Mirrors the geometry in SeatNode so the line endpoints land on seat centers.
+ */
+function seatWorldPosition(
+  table: CenterpeaceTable,
+  index: number,
+): { x: number; y: number } {
+  const angle = (index / table.capacity) * Math.PI * 2 - Math.PI / 2;
+  return {
+    x: table.x + Math.cos(angle) * SEAT_DISTANCE,
+    y: table.y + Math.sin(angle) * SEAT_DISTANCE,
+  };
+}
+
+function ConstraintLines() {
+  const tables = useEventStore((s) => s.tables);
+  const evaluated = useEventStore(useShallow(selectEvaluatedConstraints));
+
+  // Render order: violations on top of satisfied positives.
+  const drawables = React.useMemo(() => {
+    return evaluated
+      .filter((c) => c.seatA && c.seatB)
+      .map((c) => {
+        const a = parseSeatKey(c.seatA!);
+        const b = parseSeatKey(c.seatB!);
+        const tableA = tables.find((t) => t.id === a.tableId);
+        const tableB = tables.find((t) => t.id === b.tableId);
+        if (!tableA || !tableB) return null;
+        const pa = seatWorldPosition(tableA, a.index);
+        const pb = seatWorldPosition(tableB, b.index);
+        return { c, pa, pb };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((x, y) => {
+        // satisfied < violated, so violated draws last.
+        const order = { satisfied: 0, pending: 1, violated: 2 } as const;
+        return order[x.c.status] - order[y.c.status];
+      });
+  }, [evaluated, tables]);
+
+  return (
+    <>
+      {drawables.map(({ c, pa, pb }) => {
+        const violated = c.status === "violated";
+        const satisfied = c.status === "satisfied";
+        const isPositive = c.kind === "must-sit-with";
+
+        // Color logic:
+        //   violated must-sit-with    -> amber (need to fix; pull together)
+        //   violated must-not-sit-with -> red    (urgent: pull apart)
+        //   satisfied positive         -> faint green (reassuring)
+        //   satisfied negative         -> no line (clean)
+        if (satisfied && !isPositive) return null;
+
+        const stroke = violated
+          ? isPositive
+            ? "#d97706" // amber-600
+            : "#dc2626" // red-600
+          : "#16a34a"; // green-600 for satisfied positive
+
+        const opacity = satisfied ? 0.35 : 0.85;
+        const dash = violated && !isPositive ? [10, 6] : undefined;
+
+        return (
+          <Line
+            key={c.id}
+            points={[pa.x, pa.y, pb.x, pb.y]}
+            stroke={stroke}
+            strokeWidth={violated ? 2.5 : 1.5}
+            opacity={opacity}
+            dash={dash}
+            lineCap="round"
+          />
+        );
+      })}
+    </>
   );
 }
 
@@ -190,6 +275,8 @@ function SeatNode({ table, index }: { table: CenterpeaceTable; index: number }) 
   const placeAtSeat = useEventStore((s) => s.placeAtSeat);
   const clearSeat = useEventStore((s) => s.clearSeat);
   const pickGuest = useEventStore((s) => s.pickGuest);
+  const violatedSeats = useEventStore(useShallow(selectViolatedSeatKeys));
+  const isViolating = violatedSeats.has(key);
 
   const occupied = !!guest;
   const isPickedHere = pickedGuestId && guest?.id === pickedGuestId;
@@ -202,11 +289,13 @@ function SeatNode({ table, index }: { table: CenterpeaceTable; index: number }) 
       : isDropTarget
         ? "#dee0f3"
         : "#f7f2e3";
-  const stroke = isPickedHere
-    ? "#1f244f"
-    : isDropTarget
-      ? "#3a4290"
-      : "#cfc6ae";
+  const stroke = isViolating
+    ? "#dc2626" // red-600
+    : isPickedHere
+      ? "#1f244f"
+      : isDropTarget
+        ? "#3a4290"
+        : "#cfc6ae";
 
   return (
     <Group
@@ -235,10 +324,10 @@ function SeatNode({ table, index }: { table: CenterpeaceTable; index: number }) 
         radius={SEAT_RADIUS}
         fill={fill}
         stroke={stroke}
-        strokeWidth={isDropTarget ? 2 : 1}
-        shadowColor="#1a1d2b"
-        shadowBlur={isDropTarget ? 8 : 0}
-        shadowOpacity={isDropTarget ? 0.2 : 0}
+        strokeWidth={isViolating ? 2.5 : isDropTarget ? 2 : 1}
+        shadowColor={isViolating ? "#dc2626" : "#1a1d2b"}
+        shadowBlur={isViolating ? 10 : isDropTarget ? 8 : 0}
+        shadowOpacity={isViolating ? 0.4 : isDropTarget ? 0.2 : 0}
       />
       {guest && (
         <Text

@@ -57,10 +57,37 @@ export const parseSeatKey = (key: SeatKey): { tableId: TableId; index: number } 
 /** seatKey -> guestId */
 export type SeatAssignments = Record<SeatKey, GuestId>;
 
+/**
+ * Binary constraints between two guests. Kept intentionally narrow for v0:
+ * just hard "must / must-not" pairs on the same table. Soft preferences
+ * (prefer-near / avoid-near) and group constraints come once these feel right.
+ */
+export type ConstraintKind = "must-sit-with" | "must-not-sit-with";
+
+export interface Constraint {
+  id: string;
+  kind: ConstraintKind;
+  a: GuestId;
+  b: GuestId;
+  /** Optional context the dev officer adds at creation time. */
+  note?: string;
+}
+
+/** Status computed from current assignments. */
+export type ConstraintStatus = "satisfied" | "violated" | "pending";
+
+export interface EvaluatedConstraint extends Constraint {
+  status: ConstraintStatus;
+  /** Seat keys when both guests are seated, useful for drawing lines. */
+  seatA?: SeatKey;
+  seatB?: SeatKey;
+}
+
 export interface EventState {
   id: string;
   name: string;
   guests: Guest[];
   tables: CenterpeaceTable[];
   assignments: SeatAssignments;
+  constraints: Constraint[];
 }

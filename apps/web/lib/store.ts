@@ -5,6 +5,9 @@ import { persist, createJSONStorage } from "zustand/middleware";
 
 import { buildDemoEvent } from "./seed";
 import {
+  type Constraint,
+  type ConstraintKind,
+  type EvaluatedConstraint,
   type EventState,
   type GuestId,
   type SeatKey,
@@ -40,6 +43,9 @@ interface Actions {
   setCamera(camera: Partial<UIState["camera"]>): void;
   moveTable(tableId: string, x: number, y: number): void;
   updateTable(tableId: string, patch: Partial<CenterpeaceTable>): void;
+
+  addConstraint(input: { kind: ConstraintKind; a: GuestId; b: GuestId; note?: string }): void;
+  removeConstraint(id: string): void;
 }
 
 export type Store = EventState & SelectionState & UIState & Actions;
@@ -118,6 +124,19 @@ export const useEventStore = create<Store>()(
         set((s) => ({
           tables: s.tables.map((t) => (t.id === tableId ? { ...t, ...patch } : t)),
         })),
+
+      addConstraint: ({ kind, a, b, note }) => {
+        if (a === b) return;
+        const id = `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        set((s) => ({
+          constraints: [...s.constraints, { id, kind, a, b, note }],
+        }));
+      },
+
+      removeConstraint: (id) =>
+        set((s) => ({
+          constraints: s.constraints.filter((c) => c.id !== id),
+        })),
     }),
     {
       name: "centerpeace.event.demo",
@@ -138,8 +157,19 @@ export const useEventStore = create<Store>()(
         guests: s.guests,
         tables: s.tables,
         assignments: s.assignments,
+        constraints: s.constraints,
       }),
-      version: 1,
+      version: 2,
+      migrate: (persistedState, version) => {
+        const s = (persistedState ?? {}) as Partial<EventState>;
+        if (version < 2 && !s.constraints) {
+          // Earlier versions didn't track constraints; reseed from the demo so
+          // existing users get the full picture without re-importing.
+          const fresh = buildDemoEvent();
+          s.constraints = fresh.constraints;
+        }
+        return s as EventState;
+      },
       skipHydration: true,
     },
   ),
@@ -179,3 +209,57 @@ export const selectTableOccupancy =
     const table = s.tables.find((t) => t.id === tableId);
     return { seated, capacity: table?.capacity ?? 0 };
   };
+
+/**
+ * Evaluate every constraint against current seat assignments.
+ *
+ * - `must-sit-with`:    pending if either guest unseated; satisfied if same
+ *                        table; violated if seated at different tables.
+ * - `must-not-sit-with`: pending if either guest unseated; violated if same
+ *                        table; satisfied if seated at different tables.
+ *
+ * We surface seatA/seatB so the canvas can draw lines without re-deriving.
+ */
+export const selectEvaluatedConstraints = (s: Store): EvaluatedConstraint[] => {
+  // Reverse-index: guestId -> seatKey
+  const seatOf: Record<GuestId, SeatKey> = {};
+  for (const [seat, guestId] of Object.entries(s.assignments)) {
+    seatOf[guestId] = seat;
+  }
+
+  return s.constraints.map((c): EvaluatedConstraint => {
+    const sa = seatOf[c.a];
+    const sb = seatOf[c.b];
+    if (!sa || !sb) {
+      return { ...c, status: "pending", seatA: sa, seatB: sb };
+    }
+    const sameTable = parseSeatKey(sa).tableId === parseSeatKey(sb).tableId;
+    const status =
+      c.kind === "must-sit-with"
+        ? sameTable
+          ? "satisfied"
+          : "violated"
+        : sameTable
+          ? "violated"
+          : "satisfied";
+    return { ...c, status, seatA: sa, seatB: sb };
+  });
+};
+
+export const selectViolationCount = (s: Store): number =>
+  selectEvaluatedConstraints(s).filter((c) => c.status === "violated").length;
+
+/** Used as a hint on the canvas: which seat keys are involved in violations. */
+export const selectViolatedSeatKeys = (s: Store): Set<SeatKey> => {
+  const result = new Set<SeatKey>();
+  for (const c of selectEvaluatedConstraints(s)) {
+    if (c.status === "violated") {
+      if (c.seatA) result.add(c.seatA);
+      if (c.seatB) result.add(c.seatB);
+    }
+  }
+  return result;
+};
+
+// Re-export for convenience.
+export type { Constraint };

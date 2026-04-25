@@ -1,4 +1,9 @@
-import type { EventState, Guest, CenterpeaceTable } from "./types";
+import type {
+  Constraint,
+  EventState,
+  Guest,
+  CenterpeaceTable,
+} from "./types";
 
 const guestNames: Array<Pick<Guest, "name" | "affiliation">> = [
   { name: "Marcus Toussaint", affiliation: "Seed Company · Host" },
@@ -97,11 +102,57 @@ export function buildDemoEvent(): EventState {
     }
   }
 
+  // Helper: find guest id by name. Throws if missing so seed bugs surface fast.
+  const byName = (name: string): string => {
+    const g = guests.find((x) => x.name === name);
+    if (!g) throw new Error(`seed: missing guest "${name}"`);
+    return g.id;
+  };
+
+  const constraints: Constraint[] = [
+    {
+      id: "c1",
+      kind: "must-sit-with",
+      a: byName("Dr. Naomi Adeyemi"),
+      b: byName("Henry Adeyemi"),
+      note: "Spouses",
+    },
+    {
+      id: "c2",
+      kind: "must-sit-with",
+      a: byName("Sarah Chen"),
+      b: byName("David Chen"),
+      note: "Spouses",
+    },
+    {
+      id: "c3",
+      kind: "must-sit-with",
+      a: byName("Aisha Patel"),
+      b: byName("Vikram Patel"),
+      note: "Spouses",
+    },
+    {
+      id: "c4",
+      kind: "must-not-sit-with",
+      a: byName("Thomas Wright"),
+      b: byName("Eleanor Whitfield"),
+      note: "Bad blood from the 2023 board vote",
+    },
+    {
+      id: "c5",
+      kind: "must-sit-with",
+      a: byName("Marcus Toussaint"),
+      b: byName("Dr. Naomi Adeyemi"),
+      note: "Host placing major donor at host table",
+    },
+  ];
+
   return {
     id: "demo",
     name: "Annual Gala 2026 — Demo",
     guests,
     tables,
     assignments: {},
+    constraints,
   };
 }

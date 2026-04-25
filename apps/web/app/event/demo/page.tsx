@@ -5,10 +5,12 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ArrowLeft, Github } from "lucide-react";
 
+import { ConstraintPanel } from "@/components/panels/ConstraintPanel";
 import { GuestPanel } from "@/components/panels/GuestPanel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { useEventStore } from "@/lib/store";
+import { useEventStore, selectViolationCount } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 const EventCanvas = dynamic(
   () => import("@/components/canvas/EventCanvas").then((m) => m.EventCanvas),
@@ -24,6 +26,7 @@ const EventCanvas = dynamic(
 
 export default function EventDemoPage() {
   const eventName = useEventStore((s) => s.name);
+  const violations = useEventStore(selectViolationCount);
   const [hydrated, setHydrated] = React.useState(false);
 
   React.useEffect(() => {
@@ -59,6 +62,19 @@ export default function EventDemoPage() {
               {eventName}
             </h1>
           </div>
+          <span
+            className={cn(
+              "ml-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+              violations > 0
+                ? "bg-destructive/15 text-destructive"
+                : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+            )}
+            aria-live="polite"
+          >
+            {violations > 0
+              ? `${violations} violation${violations === 1 ? "" : "s"}`
+              : "All clear"}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <ThemeToggle />
@@ -80,6 +96,7 @@ export default function EventDemoPage() {
         <main className="relative min-w-0 flex-1 bg-[radial-gradient(circle_at_center,hsl(var(--secondary)),hsl(var(--background)))]">
           <EventCanvas />
         </main>
+        <ConstraintPanel />
       </div>
     </div>
   );
