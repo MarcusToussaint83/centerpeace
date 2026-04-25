@@ -85,14 +85,16 @@ function Hero() {
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           <Button size="lg" asChild>
+            <Link href="/event/demo">
+              Try the live demo
+              <ArrowRight />
+            </Link>
+          </Button>
+          <Button size="lg" variant="outline" asChild>
             <a href={REPO_URL} target="_blank" rel="noreferrer">
               <Github />
               Star on GitHub
-              <ArrowRight />
             </a>
-          </Button>
-          <Button size="lg" variant="outline" asChild>
-            <Link href="#quickstart">15-minute setup</Link>
           </Button>
         </div>
         <p className="mt-6 text-xs text-muted-foreground">
