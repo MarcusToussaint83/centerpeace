@@ -366,7 +366,29 @@ function CanvasOverlays() {
   const pickedGuestId = useEventStore((s) => s.pickedGuestId);
   const guests = useEventStore((s) => s.guests);
   const addTable = useEventStore((s) => s.addTable);
+  const autoSeat = useEventStore((s) => s.autoSeat);
   const pickedGuest = guests.find((g) => g.id === pickedGuestId);
+
+  // Toast surfaces the auto-seater's summary for a few seconds.
+  const [toast, setToast] = React.useState<{
+    placed: number;
+    unplaced: number;
+    summary: string[];
+  } | null>(null);
+  React.useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const runAutoSeat = () => {
+    const result = autoSeat();
+    setToast({
+      placed: Object.keys(result.placements).length,
+      unplaced: result.unplaced.length,
+      summary: result.summary,
+    });
+  };
 
   return (
     <>
@@ -404,6 +426,14 @@ function CanvasOverlays() {
           <span className="mx-1 h-4 w-px bg-border" />
           <button
             className="rounded px-2 py-1 font-medium text-primary hover:bg-primary/10"
+            onClick={runAutoSeat}
+            title="Place all unseated guests respecting must-sit-with / must-not-sit-with"
+          >
+            ✨ Auto-seat
+          </button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <button
+            className="rounded px-2 py-1 font-medium hover:bg-secondary"
             onClick={() =>
               addTable({
                 // Drop new tables at the world origin so they're easy to find,
@@ -413,7 +443,7 @@ function CanvasOverlays() {
               })
             }
           >
-            + Add table
+            + Table
           </button>
           <span className="mx-1 h-4 w-px bg-border" />
           <button
@@ -436,6 +466,42 @@ function CanvasOverlays() {
         <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground shadow-lg">
           Placing <span className="font-semibold">{pickedGuest.name}</span> ·
           click a seat
+        </div>
+      )}
+
+      {toast && (
+        <div className="pointer-events-auto absolute bottom-20 left-1/2 max-w-md -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-3 text-xs shadow-lg backdrop-blur">
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <span className="font-semibold">
+              {toast.placed > 0
+                ? `Auto-seated ${toast.placed} guest${toast.placed === 1 ? "" : "s"}`
+                : "Nothing changed"}
+              {toast.unplaced > 0 && (
+                <span className="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-400">
+                  {toast.unplaced} unplaced
+                </span>
+              )}
+            </span>
+            <button
+              onClick={() => setToast(null)}
+              className="rounded p-0.5 text-muted-foreground hover:bg-secondary"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+          <ul className="max-h-40 space-y-0.5 overflow-y-auto text-muted-foreground">
+            {toast.summary.slice(0, 8).map((line, i) => (
+              <li key={i} className="leading-snug">
+                {line}
+              </li>
+            ))}
+            {toast.summary.length > 8 && (
+              <li className="italic">
+                …and {toast.summary.length - 8} more
+              </li>
+            )}
+          </ul>
         </div>
       )}
     </>

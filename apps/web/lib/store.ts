@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
+import { autoSeat as runAutoSeat } from "./auto-seat";
 import { buildDemoEvent } from "./seed";
 import {
   type Constraint,
@@ -49,6 +50,11 @@ interface Actions {
 
   addConstraint(input: { kind: ConstraintKind; a: GuestId; b: GuestId; note?: string }): void;
   removeConstraint(id: string): void;
+
+  /** Apply a batch of seat -> guest placements (overwrites existing, ignores empty). */
+  applyPlacements(placements: Record<SeatKey, GuestId>): void;
+  /** Run the deterministic auto-seater on the current state and return its result. */
+  autoSeat(): import("./auto-seat").AutoSeatResult;
 }
 
 export type Store = EventState & SelectionState & UIState & Actions;
@@ -179,6 +185,27 @@ export const useEventStore = create<Store>()(
         set((s) => ({
           constraints: s.constraints.filter((c) => c.id !== id),
         })),
+
+      applyPlacements: (placements) =>
+        set((s) => ({
+          assignments: { ...s.assignments, ...placements },
+          // Clear pickup state if the picked guest just got placed.
+          pickedGuestId:
+            s.pickedGuestId && Object.values(placements).includes(s.pickedGuestId)
+              ? null
+              : s.pickedGuestId,
+        })),
+
+      autoSeat: () => {
+        const s = get();
+        const result = runAutoSeat(s);
+        if (Object.keys(result.placements).length > 0) {
+          set((cur) => ({
+            assignments: { ...cur.assignments, ...result.placements },
+          }));
+        }
+        return result;
+      },
     }),
     {
       name: "centerpeace.event.demo",
