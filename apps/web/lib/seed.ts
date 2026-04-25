@@ -60,47 +60,62 @@ export function buildDemoEvent(): EventState {
     affiliation: g.affiliation,
   }));
 
-  // 6 round tables of 8, arranged in a 3x2 grid.
-  // Canvas coordinate space; the camera centers the room on mount.
-  const cols = 3;
-  const rows = 2;
-  const spacingX = 320;
-  const spacingY = 320;
-  const startX = -((cols - 1) * spacingX) / 2;
-  const startY = -((rows - 1) * spacingY) / 2;
+  // Realistic banquet layout:
+  //   - 1 rectangular head table up top (capacity 12)
+  //   - 5 round tables of 8 below in a 3 + 2 arrangement
+  // Canvas coords; camera centers the room on mount.
+  const tables: CenterpeaceTable[] = [
+    {
+      id: id("t"),
+      label: "Head table",
+      shape: "rect",
+      capacity: 12,
+      x: 0,
+      y: -340,
+      rotation: 0,
+      host: "Marcus Toussaint",
+      purpose: "Host & major donors",
+    },
+  ];
 
-  const tables: CenterpeaceTable[] = [];
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const i = row * cols + col;
-      tables.push({
-        id: id("t"),
-        label: `Table ${i + 1}`,
-        shape: "round",
-        capacity: 8,
-        x: startX + col * spacingX,
-        y: startY + row * spacingY,
-        host:
-          i === 0
-            ? "Marcus Toussaint"
-            : i === 1
-              ? "Sarah Chen"
-              : undefined,
-        purpose:
-          i === 0
-            ? "Host table — major donors"
-            : i === 1
-              ? "Foundation cultivation"
-              : i === 2
-                ? "Faith partners"
-                : i === 3
-                  ? "Africa programs"
-                  : i === 4
-                    ? "Asia / Latin America"
-                    : "Young professionals",
-      });
-    }
-  }
+  // Top row of rounds (3 tables)
+  const topRounds = [
+    { x: -320, y: 20, purpose: "Foundation cultivation", host: "Sarah Chen" },
+    { x: 0, y: 20, purpose: "Faith partners", host: "Father O'Connor" },
+    { x: 320, y: 20, purpose: "Africa programs", host: "Daniel Okafor" },
+  ];
+  topRounds.forEach((t, i) =>
+    tables.push({
+      id: id("t"),
+      label: `Table ${i + 1}`,
+      shape: "round",
+      capacity: 8,
+      x: t.x,
+      y: t.y,
+      rotation: 0,
+      host: t.host,
+      purpose: t.purpose,
+    }),
+  );
+
+  // Bottom row (2 tables, centered)
+  const bottomRounds = [
+    { x: -160, y: 320, purpose: "Asia / Latin America", host: "Wei Zhang" },
+    { x: 160, y: 320, purpose: "Young professionals", host: "Jasmine Khoury" },
+  ];
+  bottomRounds.forEach((t, i) =>
+    tables.push({
+      id: id("t"),
+      label: `Table ${i + 4}`,
+      shape: "round",
+      capacity: 8,
+      x: t.x,
+      y: t.y,
+      rotation: 0,
+      host: t.host,
+      purpose: t.purpose,
+    }),
+  );
 
   // Helper: find guest id by name. Throws if missing so seed bugs surface fast.
   const byName = (name: string): string => {

@@ -23,15 +23,16 @@ export type TableShape = "round" | "rect";
 
 export interface CenterpeaceTable {
   id: TableId;
+  /** Display label, e.g., "Table 1" or "Head table". */
   label: string;
   shape: TableShape;
-  /** Number of seats. We render seats deterministically from this + shape. */
+  /** Number of seats. For 'rect' must be even (split across the two long sides). */
   capacity: number;
-  /** Center position in canvas coordinates. */
+  /** Center point in world coordinates on the canvas. */
   x: number;
   y: number;
-  /** Rotation in degrees (rectangles only; round tables ignore). */
-  rotation?: number;
+  /** Rotation in radians, applied around the center. 0 = long axis horizontal. */
+  rotation: number;
   /** Optional: who hosts / strategic intent. Surfaces in side panel. */
   host?: string;
   purpose?: string;

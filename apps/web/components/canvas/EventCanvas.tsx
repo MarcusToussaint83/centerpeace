@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type Konva from "konva";
-import { Stage, Layer, Circle, Group, Line, Text } from "react-konva";
+import { Stage, Layer, Circle, Group, Line, Rect, Text } from "react-konva";
 
 import { useShallow } from "zustand/react/shallow";
 
@@ -14,10 +14,14 @@ import {
   selectViolatedSeatKeys,
 } from "@/lib/store";
 import { seatKey, parseSeatKey, type CenterpeaceTable } from "@/lib/types";
+import {
+  worldSeatPosition,
+  localSeatPosition,
+  tableBounds,
+} from "@/lib/table-geometry";
+import { TableInspector } from "@/components/panels/TableInspector";
 
-const TABLE_RADIUS = 70;
 const SEAT_RADIUS = 16;
-const SEAT_DISTANCE = TABLE_RADIUS + 26;
 
 export function EventCanvas() {
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -123,21 +127,6 @@ export function EventCanvas() {
   );
 }
 
-/**
- * Compute the absolute (canvas-world) position of a seat given its table.
- * Mirrors the geometry in SeatNode so the line endpoints land on seat centers.
- */
-function seatWorldPosition(
-  table: CenterpeaceTable,
-  index: number,
-): { x: number; y: number } {
-  const angle = (index / table.capacity) * Math.PI * 2 - Math.PI / 2;
-  return {
-    x: table.x + Math.cos(angle) * SEAT_DISTANCE,
-    y: table.y + Math.sin(angle) * SEAT_DISTANCE,
-  };
-}
-
 function ConstraintLines() {
   const tables = useEventStore((s) => s.tables);
   const evaluated = useEventStore(useShallow(selectEvaluatedConstraints));
@@ -152,8 +141,8 @@ function ConstraintLines() {
         const tableA = tables.find((t) => t.id === a.tableId);
         const tableB = tables.find((t) => t.id === b.tableId);
         if (!tableA || !tableB) return null;
-        const pa = seatWorldPosition(tableA, a.index);
-        const pb = seatWorldPosition(tableB, b.index);
+        const pa = worldSeatPosition(tableA, a.index);
+        const pb = worldSeatPosition(tableB, b.index);
         return { c, pa, pb };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -210,6 +199,13 @@ function TableNode({ table }: { table: CenterpeaceTable }) {
   const occupancy = useEventStore(useShallow(selectTableOccupancy(table.id)));
 
   const isSelected = selectedTableId === table.id;
+  const bounds = tableBounds(table);
+
+  // Width used to lay out label text horizontally (rect uses long axis).
+  const labelWidth =
+    bounds.shape.kind === "round"
+      ? bounds.shape.radius * 2
+      : bounds.shape.length;
 
   return (
     <Group
@@ -223,51 +219,66 @@ function TableNode({ table }: { table: CenterpeaceTable }) {
         selectTable(table.id);
       }}
     >
-      {/* Tabletop */}
-      <Circle
-        radius={TABLE_RADIUS}
-        fill="#fbf6ec"
-        stroke={isSelected ? "#3a4290" : "#d6cdb8"}
-        strokeWidth={isSelected ? 3 : 1.5}
-        shadowColor="#1a1d2b"
-        shadowBlur={isSelected ? 18 : 10}
-        shadowOpacity={isSelected ? 0.18 : 0.08}
-        shadowOffsetY={4}
-      />
+      {/* Tabletop — rotates with table; label and seats also rotate together. */}
+      <Group rotation={(table.rotation * 180) / Math.PI}>
+        {bounds.shape.kind === "round" ? (
+          <Circle
+            radius={bounds.shape.radius}
+            fill="#fbf6ec"
+            stroke={isSelected ? "#3a4290" : "#d6cdb8"}
+            strokeWidth={isSelected ? 3 : 1.5}
+            shadowColor="#1a1d2b"
+            shadowBlur={isSelected ? 18 : 10}
+            shadowOpacity={isSelected ? 0.18 : 0.08}
+            shadowOffsetY={4}
+          />
+        ) : (
+          <Rect
+            x={-bounds.shape.length / 2}
+            y={-bounds.shape.width / 2}
+            width={bounds.shape.length}
+            height={bounds.shape.width}
+            cornerRadius={10}
+            fill="#fbf6ec"
+            stroke={isSelected ? "#3a4290" : "#d6cdb8"}
+            strokeWidth={isSelected ? 3 : 1.5}
+            shadowColor="#1a1d2b"
+            shadowBlur={isSelected ? 18 : 10}
+            shadowOpacity={isSelected ? 0.18 : 0.08}
+            shadowOffsetY={4}
+          />
+        )}
 
-      {/* Label */}
-      <Text
-        text={table.label}
-        fontSize={13}
-        fontStyle="600"
-        fill="#2d2a24"
-        align="center"
-        width={TABLE_RADIUS * 2}
-        offsetX={TABLE_RADIUS}
-        offsetY={6}
-      />
-      <Text
-        text={`${occupancy.seated}/${occupancy.capacity}`}
-        fontSize={11}
-        fill="#7a7468"
-        align="center"
-        width={TABLE_RADIUS * 2}
-        offsetX={TABLE_RADIUS}
-        offsetY={-10}
-      />
+        <Text
+          text={table.label}
+          fontSize={13}
+          fontStyle="600"
+          fill="#2d2a24"
+          align="center"
+          width={labelWidth}
+          offsetX={labelWidth / 2}
+          offsetY={6}
+        />
+        <Text
+          text={`${occupancy.seated}/${occupancy.capacity}`}
+          fontSize={11}
+          fill="#7a7468"
+          align="center"
+          width={labelWidth}
+          offsetX={labelWidth / 2}
+          offsetY={-10}
+        />
 
-      {/* Seats */}
-      {Array.from({ length: table.capacity }).map((_, i) => (
-        <SeatNode key={i} table={table} index={i} />
-      ))}
+        {Array.from({ length: table.capacity }).map((_, i) => (
+          <SeatNode key={i} table={table} index={i} />
+        ))}
+      </Group>
     </Group>
   );
 }
 
 function SeatNode({ table, index }: { table: CenterpeaceTable; index: number }) {
-  const angle = (index / table.capacity) * Math.PI * 2 - Math.PI / 2;
-  const x = Math.cos(angle) * SEAT_DISTANCE;
-  const y = Math.sin(angle) * SEAT_DISTANCE;
+  const { x, y } = localSeatPosition(table, index);
   const key = seatKey(table.id, index);
 
   const guest = useEventStore(selectGuestForSeat(key));
@@ -354,10 +365,12 @@ function CanvasOverlays() {
   const reset = useEventStore((s) => s.reset);
   const pickedGuestId = useEventStore((s) => s.pickedGuestId);
   const guests = useEventStore((s) => s.guests);
+  const addTable = useEventStore((s) => s.addTable);
   const pickedGuest = guests.find((g) => g.id === pickedGuestId);
 
   return (
     <>
+      <TableInspector />
       <div className="pointer-events-none absolute inset-0 flex items-end justify-between p-4 text-xs text-muted-foreground">
         <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-border bg-card/90 p-1 shadow-sm backdrop-blur">
           <button
@@ -387,6 +400,20 @@ function CanvasOverlays() {
             onClick={() => setCamera({ x: 0, y: 0, scale: 1 })}
           >
             Reset view
+          </button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <button
+            className="rounded px-2 py-1 font-medium text-primary hover:bg-primary/10"
+            onClick={() =>
+              addTable({
+                // Drop new tables at the world origin so they're easy to find,
+                // then let the user drag.
+                x: -camera.x / camera.scale,
+                y: -camera.y / camera.scale,
+              })
+            }
+          >
+            + Add table
           </button>
           <span className="mx-1 h-4 w-px bg-border" />
           <button

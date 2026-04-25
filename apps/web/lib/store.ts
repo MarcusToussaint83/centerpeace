@@ -43,6 +43,9 @@ interface Actions {
   setCamera(camera: Partial<UIState["camera"]>): void;
   moveTable(tableId: string, x: number, y: number): void;
   updateTable(tableId: string, patch: Partial<CenterpeaceTable>): void;
+  /** Add a new table; returns its id so callers can immediately select it. */
+  addTable(input?: Partial<CenterpeaceTable>): string;
+  removeTable(tableId: string): void;
 
   addConstraint(input: { kind: ConstraintKind; a: GuestId; b: GuestId; note?: string }): void;
   removeConstraint(id: string): void;
@@ -125,6 +128,45 @@ export const useEventStore = create<Store>()(
           tables: s.tables.map((t) => (t.id === tableId ? { ...t, ...patch } : t)),
         })),
 
+      addTable: (input) => {
+        const id = `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+        // Default new table: round, 8 seats, dropped near canvas origin.
+        const table: CenterpeaceTable = {
+          id,
+          label: input?.label ?? "New table",
+          shape: input?.shape ?? "round",
+          capacity: input?.capacity ?? 8,
+          x: input?.x ?? 0,
+          y: input?.y ?? 0,
+          rotation: input?.rotation ?? 0,
+          host: input?.host,
+          purpose: input?.purpose,
+        };
+        set((s) => ({
+          tables: [...s.tables, table],
+          selectedTableId: id,
+        }));
+        return id;
+      },
+
+      removeTable: (tableId) =>
+        set((s) => {
+          // Drop seat assignments tied to this table so the constraint
+          // evaluator doesn't surface ghosts.
+          const nextAssignments: Record<string, string> = {};
+          for (const [seat, guestId] of Object.entries(s.assignments)) {
+            if (parseSeatKey(seat).tableId !== tableId) {
+              nextAssignments[seat] = guestId;
+            }
+          }
+          return {
+            tables: s.tables.filter((t) => t.id !== tableId),
+            assignments: nextAssignments,
+            selectedTableId:
+              s.selectedTableId === tableId ? null : s.selectedTableId,
+          };
+        }),
+
       addConstraint: ({ kind, a, b, note }) => {
         if (a === b) return;
         const id = `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -159,14 +201,25 @@ export const useEventStore = create<Store>()(
         assignments: s.assignments,
         constraints: s.constraints,
       }),
-      version: 2,
+      version: 3,
       migrate: (persistedState, version) => {
         const s = (persistedState ?? {}) as Partial<EventState>;
-        if (version < 2 && !s.constraints) {
-          // Earlier versions didn't track constraints; reseed from the demo so
-          // existing users get the full picture without re-importing.
+        // Pre-launch reseed strategy: any version older than current resets
+        // tables + constraints from the demo so we never have to think about
+        // partial backfills. Users keep their seat assignments only when the
+        // matching table still exists after reseed.
+        if (version < 3) {
           const fresh = buildDemoEvent();
-          s.constraints = fresh.constraints;
+          return {
+            ...fresh,
+            // Preserve seat assignments that still point at a valid seat.
+            assignments: Object.fromEntries(
+              Object.entries(s.assignments ?? {}).filter(([seat]) => {
+                const tableId = parseSeatKey(seat).tableId;
+                return fresh.tables.some((t) => t.id === tableId);
+              }),
+            ),
+          } as EventState;
         }
         return s as EventState;
       },
