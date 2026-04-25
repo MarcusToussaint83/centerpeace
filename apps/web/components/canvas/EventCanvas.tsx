@@ -462,14 +462,14 @@ function CanvasOverlays() {
           <span className="mx-1 h-4 w-px bg-border" />
           <button
             className="rounded px-2 py-1 font-medium hover:bg-secondary"
-            onClick={() =>
-              addTable({
-                // Drop new tables at the world origin so they're easy to find,
-                // then let the user drag.
-                x: -camera.x / camera.scale,
-                y: -camera.y / camera.scale,
-              })
-            }
+            onClick={() => {
+              // World point under the viewport center, with a small jitter so
+              // repeated clicks don't pile tables on top of each other.
+              const cx = -camera.x / camera.scale;
+              const cy = -camera.y / camera.scale;
+              const jitter = () => (Math.random() - 0.5) * 80;
+              addTable({ x: cx + jitter(), y: cy + jitter() });
+            }}
           >
             + Table
           </button>

@@ -9,8 +9,8 @@ import {
   X,
 } from "lucide-react";
 
-import { useEventStore, selectTableOccupancy } from "@/lib/store";
-import type { TableShape } from "@/lib/types";
+import { useEventStore } from "@/lib/store";
+import { parseSeatKey, type TableShape } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,14 +22,21 @@ import { cn } from "@/lib/utils";
 export function TableInspector() {
   const selectedId = useEventStore((s) => s.selectedTableId);
   const tables = useEventStore((s) => s.tables);
+  const assignments = useEventStore((s) => s.assignments);
   const updateTable = useEventStore((s) => s.updateTable);
   const removeTable = useEventStore((s) => s.removeTable);
   const selectTable = useEventStore((s) => s.selectTable);
-  const occupancy = useEventStore((s) =>
-    selectedId ? selectTableOccupancy(selectedId)(s) : null,
-  );
 
   const table = tables.find((t) => t.id === selectedId);
+  const occupancy = React.useMemo(() => {
+    if (!table) return null;
+    let seated = 0;
+    for (const seat of Object.keys(assignments)) {
+      if (parseSeatKey(seat).tableId === table.id) seated++;
+    }
+    return { seated, capacity: table.capacity };
+  }, [table, assignments]);
+
   if (!table) return null;
 
   const setShape = (shape: TableShape) => {
