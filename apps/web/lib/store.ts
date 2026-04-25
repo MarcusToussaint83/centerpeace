@@ -293,21 +293,26 @@ export const selectTableOccupancy =
 /**
  * Evaluate every constraint against current seat assignments.
  *
- * - `must-sit-with`:    pending if either guest unseated; satisfied if same
- *                        table; violated if seated at different tables.
- * - `must-not-sit-with`: pending if either guest unseated; violated if same
- *                        table; satisfied if seated at different tables.
+ * Pure function so components can call it inside `useMemo` keyed on the
+ * primitive `constraints` and `assignments` slices. Calling it as a zustand
+ * selector returns a fresh array each render and triggers the
+ * "getSnapshot should be cached" warning.
  *
- * We surface seatA/seatB so the canvas can draw lines without re-deriving.
+ * - `must-sit-with`:     pending if either guest unseated; satisfied if same
+ *                         table; violated if seated at different tables.
+ * - `must-not-sit-with`: pending if either guest unseated; violated if same
+ *                         table; satisfied if seated at different tables.
  */
-export const selectEvaluatedConstraints = (s: Store): EvaluatedConstraint[] => {
-  // Reverse-index: guestId -> seatKey
+export function evaluateConstraints(
+  constraints: Constraint[],
+  assignments: Record<SeatKey, GuestId>,
+): EvaluatedConstraint[] {
   const seatOf: Record<GuestId, SeatKey> = {};
-  for (const [seat, guestId] of Object.entries(s.assignments)) {
+  for (const [seat, guestId] of Object.entries(assignments)) {
     seatOf[guestId] = seat;
   }
 
-  return s.constraints.map((c): EvaluatedConstraint => {
+  return constraints.map((c): EvaluatedConstraint => {
     const sa = seatOf[c.a];
     const sb = seatOf[c.b];
     if (!sa || !sb) {
@@ -324,21 +329,26 @@ export const selectEvaluatedConstraints = (s: Store): EvaluatedConstraint[] => {
           : "satisfied";
     return { ...c, status, seatA: sa, seatB: sb };
   });
-};
+}
 
-export const selectViolationCount = (s: Store): number =>
-  selectEvaluatedConstraints(s).filter((c) => c.status === "violated").length;
-
-/** Used as a hint on the canvas: which seat keys are involved in violations. */
-export const selectViolatedSeatKeys = (s: Store): Set<SeatKey> => {
-  const result = new Set<SeatKey>();
-  for (const c of selectEvaluatedConstraints(s)) {
-    if (c.status === "violated") {
-      if (c.seatA) result.add(c.seatA);
-      if (c.seatB) result.add(c.seatB);
-    }
+/** Returns a stable number, safe to use as a direct zustand selector. */
+export const selectViolationCount = (s: Store): number => {
+  // Counting doesn't allocate, so this is fine to recompute per render.
+  let n = 0;
+  const seatOf: Record<GuestId, SeatKey> = {};
+  for (const [seat, guestId] of Object.entries(s.assignments)) {
+    seatOf[guestId] = seat;
   }
-  return result;
+  for (const c of s.constraints) {
+    const sa = seatOf[c.a];
+    const sb = seatOf[c.b];
+    if (!sa || !sb) continue;
+    const sameTable = parseSeatKey(sa).tableId === parseSeatKey(sb).tableId;
+    const violated =
+      c.kind === "must-sit-with" ? !sameTable : sameTable;
+    if (violated) n++;
+  }
+  return n;
 };
 
 // Re-export for convenience.

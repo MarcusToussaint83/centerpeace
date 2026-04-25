@@ -11,14 +11,17 @@ import {
   Unlink,
   X,
 } from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
-
-import { useEventStore, selectEvaluatedConstraints } from "@/lib/store";
+import { useEventStore, evaluateConstraints } from "@/lib/store";
 import type { ConstraintKind, EvaluatedConstraint } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function ConstraintPanel() {
-  const evaluated = useEventStore(useShallow(selectEvaluatedConstraints));
+  const constraints = useEventStore((s) => s.constraints);
+  const assignments = useEventStore((s) => s.assignments);
+  const evaluated = React.useMemo(
+    () => evaluateConstraints(constraints, assignments),
+    [constraints, assignments],
+  );
   const removeConstraint = useEventStore((s) => s.removeConstraint);
   const guests = useEventStore((s) => s.guests);
 

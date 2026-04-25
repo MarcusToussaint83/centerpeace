@@ -10,8 +10,7 @@ import {
   useEventStore,
   selectGuestForSeat,
   selectTableOccupancy,
-  selectEvaluatedConstraints,
-  selectViolatedSeatKeys,
+  evaluateConstraints,
 } from "@/lib/store";
 import { seatKey, parseSeatKey, type CenterpeaceTable } from "@/lib/types";
 import {
@@ -129,7 +128,12 @@ export function EventCanvas() {
 
 function ConstraintLines() {
   const tables = useEventStore((s) => s.tables);
-  const evaluated = useEventStore(useShallow(selectEvaluatedConstraints));
+  const constraints = useEventStore((s) => s.constraints);
+  const assignments = useEventStore((s) => s.assignments);
+  const evaluated = React.useMemo(
+    () => evaluateConstraints(constraints, assignments),
+    [constraints, assignments],
+  );
 
   // Render order: violations on top of satisfied positives.
   const drawables = React.useMemo(() => {
@@ -197,6 +201,18 @@ function TableNode({ table }: { table: CenterpeaceTable }) {
   const selectTable = useEventStore((s) => s.selectTable);
   const moveTable = useEventStore((s) => s.moveTable);
   const occupancy = useEventStore(useShallow(selectTableOccupancy(table.id)));
+  const constraints = useEventStore((s) => s.constraints);
+  const assignments = useEventStore((s) => s.assignments);
+  const violatedSeats = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const c of evaluateConstraints(constraints, assignments)) {
+      if (c.status === "violated") {
+        if (c.seatA) set.add(c.seatA);
+        if (c.seatB) set.add(c.seatB);
+      }
+    }
+    return set;
+  }, [constraints, assignments]);
 
   const isSelected = selectedTableId === table.id;
   const bounds = tableBounds(table);
@@ -270,14 +286,27 @@ function TableNode({ table }: { table: CenterpeaceTable }) {
         />
 
         {Array.from({ length: table.capacity }).map((_, i) => (
-          <SeatNode key={i} table={table} index={i} />
+          <SeatNode
+            key={i}
+            table={table}
+            index={i}
+            violatedSeats={violatedSeats}
+          />
         ))}
       </Group>
     </Group>
   );
 }
 
-function SeatNode({ table, index }: { table: CenterpeaceTable; index: number }) {
+function SeatNode({
+  table,
+  index,
+  violatedSeats,
+}: {
+  table: CenterpeaceTable;
+  index: number;
+  violatedSeats: Set<string>;
+}) {
   const { x, y } = localSeatPosition(table, index);
   const key = seatKey(table.id, index);
 
@@ -286,7 +315,6 @@ function SeatNode({ table, index }: { table: CenterpeaceTable; index: number }) 
   const placeAtSeat = useEventStore((s) => s.placeAtSeat);
   const clearSeat = useEventStore((s) => s.clearSeat);
   const pickGuest = useEventStore((s) => s.pickGuest);
-  const violatedSeats = useEventStore(useShallow(selectViolatedSeatKeys));
   const isViolating = violatedSeats.has(key);
 
   const occupied = !!guest;
