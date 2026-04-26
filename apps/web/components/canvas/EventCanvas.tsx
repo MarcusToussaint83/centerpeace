@@ -21,6 +21,7 @@ import {
 } from "@/lib/table-geometry";
 import { TableInspector } from "@/components/panels/TableInspector";
 import { exportPNG, exportCSV } from "@/lib/export";
+import { workspaceClient } from "@/lib/workspace/client";
 
 const SEAT_RADIUS = 16;
 
@@ -444,12 +445,28 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
   const saveVersion = useEventStore((s) => s.saveVersion);
   const restoreVersion = useEventStore((s) => s.restoreVersion);
   const deleteVersion = useEventStore((s) => s.deleteVersion);
+  const workspacePath = useEventStore((s) => s.workspacePath);
+  const lastSyncAt = useEventStore((s) => s.lastSyncAt);
+  const setWorkspacePath = useEventStore((s) => s.setWorkspacePath);
+  const markSynced = useEventStore((s) => s.markSynced);
   const eventState = useEventStore(
     useShallow((s) => ({
       name: s.name,
       guests: s.guests,
       tables: s.tables,
       assignments: s.assignments,
+    })),
+  );
+  // Subset used to drive auto-sync; includes id + constraints so the
+  // workspace gets a complete picture of the event.
+  const syncableState = useEventStore(
+    useShallow((s) => ({
+      id: s.id,
+      name: s.name,
+      guests: s.guests,
+      tables: s.tables,
+      assignments: s.assignments,
+      constraints: s.constraints,
     })),
   );
   const setAssignments = useEventStore((s) => s.setAssignments);
@@ -557,6 +574,14 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
             saveVersion={saveVersion}
             restoreVersion={restoreVersion}
             deleteVersion={deleteVersion}
+          />
+          <WorkspaceMenu
+            workspacePath={workspacePath}
+            lastSyncAt={lastSyncAt}
+            eventName={eventState.name}
+            state={syncableState}
+            setWorkspacePath={setWorkspacePath}
+            markSynced={markSynced}
           />
           <span className="mx-1 h-4 w-px bg-border" />
           <button
@@ -673,6 +698,195 @@ function initialsOf(name: string) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function WorkspaceMenu({
+  workspacePath,
+  lastSyncAt,
+  eventName,
+  state,
+  setWorkspacePath,
+  markSynced,
+}: {
+  workspacePath: string | null;
+  lastSyncAt: string | null;
+  eventName: string;
+  state: {
+    id: string;
+    name: string;
+    guests: import("@/lib/types").Guest[];
+    tables: import("@/lib/types").CenterpeaceTable[];
+    assignments: import("@/lib/types").SeatAssignments;
+    constraints: import("@/lib/types").Constraint[];
+  };
+  setWorkspacePath: (p: string | null) => void;
+  markSynced: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  // Auto-sync: 1s debounce on every state change while a workspace is set.
+  // Any sync failure clears the path silently — most likely cause is a
+  // deployed (non-fs) environment or the user deleted the folder.
+  const syncRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (!workspacePath) return;
+    if (syncRef.current) window.clearTimeout(syncRef.current);
+    syncRef.current = window.setTimeout(async () => {
+      try {
+        await workspaceClient.sync(workspacePath, state as unknown as Record<string, unknown>);
+        markSynced();
+      } catch (e) {
+        console.warn("workspace sync failed", e);
+      }
+    }, 1000);
+    return () => {
+      if (syncRef.current) window.clearTimeout(syncRef.current);
+    };
+  }, [workspacePath, state, markSynced]);
+
+  const setUp = async () => {
+    setError(null);
+    setBusy("Setting up…");
+    try {
+      const { path } = await workspaceClient.defaultPath(eventName);
+      const ok = confirm(
+        `Create your agent workspace at:\n\n${path}\n\n` +
+          `Your guest list and seating data will be written to disk in plain text. ` +
+          `OK to continue?`,
+      );
+      if (!ok) {
+        setBusy(null);
+        return;
+      }
+      const result = await workspaceClient.bootstrap(path);
+      setWorkspacePath(result.root);
+      // Immediate first sync so the workspace is usable right away.
+      await workspaceClient.sync(result.root, state as unknown as Record<string, unknown>);
+      markSynced();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const syncNow = async () => {
+    if (!workspacePath) return;
+    setError(null);
+    setBusy("Syncing…");
+    try {
+      await workspaceClient.sync(workspacePath, state as unknown as Record<string, unknown>);
+      markSynced();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const clearWs = async () => {
+    if (!workspacePath) return;
+    if (!confirm("Clear the workspace folder? Files in archive/ are kept.")) return;
+    setBusy("Clearing…");
+    try {
+      await workspaceClient.clear(workspacePath);
+      setWorkspacePath(null);
+      setOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Truncate path for display.
+  const shortPath = workspacePath
+    ? workspacePath.replace(/^.+?(\/[^/]+\/[^/]+)$/, "…$1")
+    : null;
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        className="rounded px-2 py-1 font-medium hover:bg-secondary"
+        onClick={() => (workspacePath ? setOpen((v) => !v) : setUp())}
+        title={workspacePath ? `Workspace: ${workspacePath}` : "Set up agent workspace"}
+        disabled={busy !== null}
+      >
+        {workspacePath ? `⌂ Workspace${lastSyncAt ? " ✓" : ""}` : "⌂ Workspace"}
+      </button>
+      {open && workspacePath && (
+        <div
+          className="absolute bottom-full left-0 mb-2 w-80 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          role="menu"
+        >
+          <div className="border-b border-border px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Workspace
+            </div>
+            <div
+              className="mt-0.5 truncate font-mono text-[11px]"
+              title={workspacePath}
+            >
+              {shortPath}
+            </div>
+            {lastSyncAt && (
+              <div className="mt-0.5 text-[10px] text-muted-foreground">
+                Last sync · {new Date(lastSyncAt).toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+          <ul className="text-xs">
+            <li>
+              <button
+                onClick={syncNow}
+                disabled={busy !== null}
+                className="block w-full px-3 py-2 text-left hover:bg-secondary/60 disabled:opacity-50"
+              >
+                Sync now
+              </button>
+            </li>
+            <li>
+              <button
+                onClick={clearWs}
+                disabled={busy !== null}
+                className="block w-full px-3 py-2 text-left text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                Clear workspace
+              </button>
+            </li>
+            <li>
+              <button
+                onClick={() => {
+                  setWorkspacePath(null);
+                  setOpen(false);
+                }}
+                className="block w-full border-t border-border px-3 py-2 text-left text-muted-foreground hover:bg-secondary/60"
+              >
+                Disconnect (keep files on disk)
+              </button>
+            </li>
+          </ul>
+          {error && (
+            <div className="border-t border-border bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function HistoryMenu({

@@ -43,6 +43,13 @@ interface VersionsState {
   versions: VersionSnapshot[];
 }
 
+interface WorkspaceState {
+  /** Absolute path to the agent workspace folder, or null when unconfigured. */
+  workspacePath: string | null;
+  /** ISO timestamp of the last successful sync, or null. */
+  lastSyncAt: string | null;
+}
+
 interface Actions {
   reset(): void;
 
@@ -89,9 +96,14 @@ interface Actions {
   restoreVersion(id: string): void;
   /** Delete a saved version. */
   deleteVersion(id: string): void;
+
+  /** Set or clear the workspace path. Pass null to disconnect. */
+  setWorkspacePath(p: string | null): void;
+  /** Record the most recent successful sync. */
+  markSynced(): void;
 }
 
-export type Store = EventState & SelectionState & UIState & VersionsState & Actions;
+export type Store = EventState & SelectionState & UIState & VersionsState & WorkspaceState & Actions;
 
 const initialEvent = buildDemoEvent();
 
@@ -103,6 +115,8 @@ export const useEventStore = create<Store>()(
       selectedTableId: null,
       camera: { x: 0, y: 0, scale: 1 },
       versions: [],
+      workspacePath: null,
+      lastSyncAt: null,
 
       reset: () => {
         const fresh = buildDemoEvent();
@@ -299,6 +313,9 @@ export const useEventStore = create<Store>()(
       deleteVersion: (id) =>
         set((s) => ({ versions: s.versions.filter((v) => v.id !== id) })),
 
+      setWorkspacePath: (p) => set({ workspacePath: p, lastSyncAt: null }),
+      markSynced: () => set({ lastSyncAt: new Date().toISOString() }),
+
       importGuests: (rows) => {
         const existing = new Set(
           get().guests.map((g) => g.name.trim().toLowerCase()),
@@ -340,6 +357,7 @@ export const useEventStore = create<Store>()(
         assignments: s.assignments,
         constraints: s.constraints,
         versions: s.versions,
+        workspacePath: s.workspacePath,
       }),
       version: 3,
       migrate: (persistedState, version) => {
