@@ -37,7 +37,7 @@ export function GuestPanel() {
   );
 
   return (
-    <aside className="flex h-full w-80 flex-col border-r border-border bg-card">
+    <aside className="flex h-full w-full flex-col border-r border-border bg-card">
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 font-semibold tracking-tight">

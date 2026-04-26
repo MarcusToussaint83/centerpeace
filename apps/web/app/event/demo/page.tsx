@@ -3,14 +3,75 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ArrowLeft, Github } from "lucide-react";
-
+import { ArrowLeft, ChevronLeft, ChevronRight, Github } from "lucide-react";
 import { ConstraintPanel } from "@/components/panels/ConstraintPanel";
 import { GuestPanel } from "@/components/panels/GuestPanel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useEventStore, selectViolationCount } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+/**
+ * Wraps a side panel with a smooth slide-collapse and a visible tab on the
+ * inner edge so users can toggle it without hunting for a button.
+ *
+ * side="left"  → panel slides left to hide, tab appears on its right edge
+ * side="right" → panel slides right to hide, tab appears on its left edge
+ */
+function CollapsiblePanel({
+  side,
+  label,
+  badge,
+  children,
+}: {
+  side: "left" | "right";
+  label: string;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = React.useState(true);
+
+  const tabIcon = side === "left"
+    ? (open ? <ChevronLeft className="size-3" /> : <ChevronRight className="size-3" />)
+    : (open ? <ChevronRight className="size-3" /> : <ChevronLeft className="size-3" />);
+
+  return (
+    <div className={cn("relative flex h-full shrink-0", side === "right" && "flex-row-reverse")}>
+      {/* Sliding panel */}
+      <div
+        className={cn(
+          "flex h-full w-72 flex-col overflow-hidden transition-all duration-200 ease-in-out",
+          open ? "w-72 opacity-100" : "w-0 opacity-0",
+        )}
+        aria-hidden={!open}
+      >
+        {children}
+      </div>
+
+      {/* Collapse tab — sits flush on the inner edge */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label={open ? `Collapse ${label} panel` : `Expand ${label} panel`}
+        title={open ? `Collapse ${label}` : `Expand ${label}`}
+        className={cn(
+          "group flex flex-col items-center justify-center gap-1 border-border bg-card px-1 py-3 text-[10px] font-medium uppercase tracking-widest text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+          side === "left"
+            ? "border-r"
+            : "border-l",
+        )}
+      >
+        {tabIcon}
+        {badge && <span className="mt-0.5">{badge}</span>}
+        <span
+          className="writing-mode-vertical-lr text-[9px]"
+          style={{ writingMode: "vertical-lr", transform: side === "left" ? "none" : "rotate(180deg)" }}
+        >
+          {label}
+        </span>
+      </button>
+    </div>
+  );
+}
 
 const EventCanvas = dynamic(
   () => import("@/components/canvas/EventCanvas").then((m) => m.EventCanvas),
@@ -89,12 +150,26 @@ export default function EventDemoPage() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <GuestPanel />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <CollapsiblePanel side="left" label="Guests">
+          <GuestPanel />
+        </CollapsiblePanel>
         <main className="relative min-w-0 flex-1 bg-[radial-gradient(circle_at_center,hsl(var(--secondary)),hsl(var(--background)))]">
           <EventCanvas />
         </main>
-        <ConstraintPanel />
+        <CollapsiblePanel
+          side="right"
+          label="Constraints"
+          badge={
+            violations > 0 ? (
+              <span className="rounded-full bg-destructive/15 px-1 py-0.5 text-[8px] font-bold text-destructive">
+                {violations}
+              </span>
+            ) : null
+          }
+        >
+          <ConstraintPanel />
+        </CollapsiblePanel>
       </div>
     </div>
   );

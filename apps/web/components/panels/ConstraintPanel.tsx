@@ -35,7 +35,7 @@ export function ConstraintPanel() {
     guests.find((g) => g.id === id)?.name ?? "Unknown";
 
   return (
-    <aside className="flex h-full w-80 flex-col border-l border-border bg-card">
+    <aside className="flex h-full w-full flex-col border-l border-border bg-card">
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 font-semibold tracking-tight">
