@@ -21,6 +21,7 @@ import {
 } from "@/lib/table-geometry";
 import { TableInspector } from "@/components/panels/TableInspector";
 import { AISettingsButton } from "@/components/panels/AISettings";
+import { AIChatPanel } from "@/components/panels/AIChatPanel";
 import { exportPNG, exportCSV } from "@/lib/export";
 import { workspaceClient, subscribeWorkspace } from "@/lib/workspace/client";
 
@@ -698,6 +699,8 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
           click a seat
         </div>
       )}
+
+      <AIChatPanel />
 
       {toast && (
         <div className="pointer-events-auto absolute bottom-20 left-1/2 max-w-md -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-3 text-xs shadow-lg backdrop-blur">
