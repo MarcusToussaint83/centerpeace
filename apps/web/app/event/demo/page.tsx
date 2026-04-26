@@ -27,15 +27,13 @@ const EventCanvas = dynamic(
 export default function EventDemoPage() {
   const eventName = useEventStore((s) => s.name);
   const violations = useEventStore(selectViolationCount);
-  const [hydrated, setHydrated] = React.useState(false);
-
+  const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => {
-    Promise.resolve(useEventStore.persist.rehydrate()).finally(() =>
-      setHydrated(true),
-    );
+    useEventStore.persist.rehydrate();
+    setMounted(true);
   }, []);
 
-  if (!hydrated) {
+  if (!mounted) {
     return (
       <div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">
         Loading event…

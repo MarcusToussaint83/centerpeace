@@ -20,6 +20,7 @@ import {
   findNearestSeat,
 } from "@/lib/table-geometry";
 import { TableInspector } from "@/components/panels/TableInspector";
+import { exportPNG, exportCSV } from "@/lib/export";
 
 const SEAT_RADIUS = 16;
 
@@ -164,7 +165,7 @@ export function EventCanvas() {
           ))}
         </Layer>
       </Stage>
-      <CanvasOverlays />
+      <CanvasOverlays stageRef={stageRef} />
     </div>
   );
 }
@@ -430,7 +431,7 @@ function SeatNode({
   );
 }
 
-function CanvasOverlays() {
+function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | null> }) {
   const camera = useEventStore((s) => s.camera);
   const setCamera = useEventStore((s) => s.setCamera);
   const reset = useEventStore((s) => s.reset);
@@ -439,6 +440,14 @@ function CanvasOverlays() {
   const addTable = useEventStore((s) => s.addTable);
   const autoSeat = useEventStore((s) => s.autoSeat);
   const reseatAll = useEventStore((s) => s.reseatAll);
+  const eventState = useEventStore(
+    useShallow((s) => ({
+      name: s.name,
+      guests: s.guests,
+      tables: s.tables,
+      assignments: s.assignments,
+    })),
+  );
   const setAssignments = useEventStore((s) => s.setAssignments);
   const pickedGuest = guests.find((g) => g.id === pickedGuestId);
 
@@ -551,6 +560,23 @@ function CanvasOverlays() {
             }}
           >
             + Table
+          </button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <button
+            className="rounded px-2 py-1 font-medium hover:bg-secondary"
+            onClick={() => {
+              if (stageRef.current) exportPNG(stageRef.current, eventState.name);
+            }}
+            title="Download seating chart as PNG"
+          >
+            ↓ PNG
+          </button>
+          <button
+            className="rounded px-2 py-1 font-medium hover:bg-secondary"
+            onClick={() => exportCSV(eventState)}
+            title="Download guest list as CSV"
+          >
+            ↓ CSV
           </button>
           <span className="mx-1 h-4 w-px bg-border" />
           <button
