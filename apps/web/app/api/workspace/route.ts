@@ -20,6 +20,12 @@ import os from "node:os";
 import { bootstrapWorkspace, clearWorkspace } from "@/lib/workspace/bootstrap";
 import { defaultWorkspacePath, workspacePaths } from "@/lib/workspace/paths";
 import { syncWorkspace } from "@/lib/workspace/sync";
+import {
+  createRequest,
+  appendSession,
+  archiveResponseFile,
+  type RequestType,
+} from "@/lib/workspace/requests";
 
 export const runtime = "nodejs";
 
@@ -101,6 +107,47 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: "Invalid workspace path." }, { status: 400 });
         }
         await clearWorkspace(root);
+        return NextResponse.json({ ok: true });
+      }
+
+      case "create-request": {
+        const root = String(body?.path ?? "");
+        if (!isSafeWorkspacePath(root)) {
+          return NextResponse.json({ error: "Invalid workspace path." }, { status: 400 });
+        }
+        const type = String(body?.type ?? "") as RequestType;
+        const note = body?.note ? String(body.note) : undefined;
+        const scope = body?.scope as Record<string, unknown> | undefined;
+        const result = await createRequest({ root, type, note, scope });
+        return NextResponse.json(result);
+      }
+
+      case "accept-response":
+      case "reject-response": {
+        const root = String(body?.path ?? "");
+        if (!isSafeWorkspacePath(root)) {
+          return NextResponse.json({ error: "Invalid workspace path." }, { status: 400 });
+        }
+        const file = String(body?.file ?? "");
+        const accepted: "full" | "rejected" =
+          action === "accept-response" ? "full" : "rejected";
+        // file must live inside the workspace responses/ folder.
+        const p = workspacePaths(root);
+        const abs = path.resolve(file);
+        if (!abs.startsWith(p.responses + path.sep)) {
+          return NextResponse.json({ error: "File outside workspace." }, { status: 400 });
+        }
+        const summary = body?.summary ? String(body.summary) : "";
+        const requestId = body?.requestId ? String(body.requestId) : "";
+        const requestType = body?.requestType ? String(body.requestType) : "";
+        await appendSession(root, {
+          requestId,
+          requestType,
+          responseSummary: summary,
+          completedAt: new Date().toISOString(),
+          accepted,
+        });
+        await archiveResponseFile(abs, root, accepted === "rejected" ? "rejected" : undefined);
         return NextResponse.json({ ok: true });
       }
 

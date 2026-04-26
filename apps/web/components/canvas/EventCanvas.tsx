@@ -21,7 +21,9 @@ import {
 } from "@/lib/table-geometry";
 import { TableInspector } from "@/components/panels/TableInspector";
 import { exportPNG, exportCSV } from "@/lib/export";
-import { workspaceClient } from "@/lib/workspace/client";
+import { workspaceClient, subscribeWorkspace } from "@/lib/workspace/client";
+import type { AgentResponse } from "@/lib/workspace/validate";
+import { validateReferences } from "@/lib/workspace/validate";
 
 const SEAT_RADIUS = 16;
 
@@ -470,6 +472,9 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
     })),
   );
   const setAssignments = useEventStore((s) => s.setAssignments);
+  const applyPlacements = useEventStore((s) => s.applyPlacements);
+  const saveVersionFn = useEventStore((s) => s.saveVersion);
+  const constraintsForRef = useEventStore((s) => s.constraints);
   const pickedGuest = guests.find((g) => g.id === pickedGuestId);
 
   // Toast surfaces the auto-seater's summary for a few seconds.
@@ -480,6 +485,89 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
     summary: string[];
     undo?: () => void;
   } | null>(null);
+
+  // ---- Agent proposal subscription ----
+  // When a workspace is configured, subscribe to its SSE stream and queue
+  // any validated proposals for the user to accept / reject. Multiple
+  // proposals queue up; we show one at a time.
+  const [proposals, setProposals] = React.useState<
+    { file: string; response: AgentResponse }[]
+  >([]);
+  const [proposalIssues, setProposalIssues] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    if (!workspacePath) return;
+    const unsubscribe = subscribeWorkspace(workspacePath, {
+      onProposal: (ev) => setProposals((q) => [...q, ev]),
+      onInvalid: (ev) =>
+        setToast({
+          title: `Invalid response in ${ev.file.split("/").pop()}`,
+          placed: 0,
+          unplaced: 0,
+          summary: ev.errors.slice(0, 4),
+        }),
+      onError: (e) => console.warn("workspace SSE error", e),
+    });
+    return unsubscribe;
+  }, [workspacePath]);
+
+  const currentProposal = proposals[0] ?? null;
+  // Re-validate references against the live state every render so the issues
+  // shown stay in sync if the user edits the chart while a proposal is open.
+  React.useEffect(() => {
+    if (!currentProposal) {
+      setProposalIssues([]);
+      return;
+    }
+    setProposalIssues(
+      validateReferences(currentProposal.response, {
+        guests,
+        tables: useEventStore.getState().tables,
+        assignments: useEventStore.getState().assignments,
+        constraints: constraintsForRef,
+      }),
+    );
+  }, [currentProposal, guests, constraintsForRef]);
+
+  const acceptProposal = async () => {
+    if (!currentProposal || !workspacePath) return;
+    const moves = currentProposal.response.proposedAssignments ?? [];
+    if (moves.length > 0) {
+      saveVersionFn(`Before agent: ${currentProposal.response.summary.slice(0, 40)}`);
+      const placements: Record<string, string> = {};
+      for (const m of moves) {
+        placements[`${m.tableId}:${m.seatIndex}`] = m.guestId;
+      }
+      applyPlacements(placements);
+    }
+    try {
+      await workspaceClient.acceptResponse({
+        path: workspacePath,
+        file: currentProposal.file,
+        requestId: currentProposal.response.requestId,
+        requestType: currentProposal.response.type,
+        summary: currentProposal.response.summary,
+      });
+    } catch (e) {
+      console.warn("accept-response archive failed", e);
+    }
+    setProposals((q) => q.slice(1));
+  };
+
+  const rejectProposal = async () => {
+    if (!currentProposal || !workspacePath) return;
+    try {
+      await workspaceClient.rejectResponse({
+        path: workspacePath,
+        file: currentProposal.file,
+        requestId: currentProposal.response.requestId,
+        requestType: currentProposal.response.type,
+        summary: currentProposal.response.summary,
+      });
+    } catch (e) {
+      console.warn("reject-response archive failed", e);
+    }
+    setProposals((q) => q.slice(1));
+  };
   React.useEffect(() => {
     if (!toast) return;
     // Reseat toasts stick longer because the user might want to undo.
@@ -638,6 +726,16 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
         </div>
       )}
 
+      {currentProposal && (
+        <ProposalCard
+          proposal={currentProposal.response}
+          issues={proposalIssues}
+          queueSize={proposals.length}
+          onAccept={acceptProposal}
+          onReject={rejectProposal}
+        />
+      )}
+
       {toast && (
         <div className="pointer-events-auto absolute bottom-20 left-1/2 max-w-md -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-3 text-xs shadow-lg backdrop-blur">
           <div className="mb-1 flex items-center justify-between gap-3">
@@ -700,6 +798,122 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function ProposalCard({
+  proposal,
+  issues,
+  queueSize,
+  onAccept,
+  onReject,
+}: {
+  proposal: AgentResponse;
+  issues: string[];
+  queueSize: number;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const moves = proposal.proposedAssignments ?? [];
+  const warnings = proposal.warnings ?? [];
+
+  return (
+    <div className="pointer-events-auto absolute bottom-20 left-1/2 w-[min(640px,calc(100%-2rem))] -translate-x-1/2 overflow-hidden rounded-lg border border-primary/40 bg-card/95 text-xs shadow-2xl backdrop-blur">
+      <div className="flex items-center justify-between border-b border-border bg-primary/10 px-4 py-2">
+        <div className="flex items-center gap-2 font-semibold">
+          <span>✨ Agent proposal</span>
+          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] uppercase tracking-wider">
+            {proposal.type}
+          </span>
+          {proposal.agent && (
+            <span className="text-[10px] text-muted-foreground">
+              · {proposal.agent}
+            </span>
+          )}
+          {queueSize > 1 && (
+            <span className="text-[10px] text-muted-foreground">
+              · {queueSize - 1} more queued
+            </span>
+          )}
+        </div>
+        <button
+          onClick={onReject}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Reject"
+          title="Reject"
+        >
+          ×
+        </button>
+      </div>
+      <div className="max-h-[40vh] overflow-y-auto px-4 py-3">
+        <p className="font-medium leading-snug">{proposal.summary}</p>
+        {proposal.explanation && (
+          <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+            {proposal.explanation}
+          </p>
+        )}
+        {moves.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {moves.length} proposed move{moves.length === 1 ? "" : "s"}
+            </div>
+            <ul className="space-y-1.5">
+              {moves.slice(0, 6).map((m, i) => (
+                <li key={i} className="rounded border border-border/60 bg-background/50 px-2 py-1.5">
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    {m.guestId} → {m.tableId} · seat {m.seatIndex + 1}
+                  </div>
+                  <div className="mt-0.5">{m.reasoning}</div>
+                </li>
+              ))}
+              {moves.length > 6 && (
+                <li className="text-[10px] text-muted-foreground">
+                  + {moves.length - 6} more (review in workspace if needed)
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+        {warnings.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Agent warnings
+            </div>
+            <ul className="space-y-0.5 text-amber-700 dark:text-amber-300">
+              {warnings.map((w, i) => (
+                <li key={i}>· {w.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {issues.length > 0 && (
+          <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-destructive">
+            <div className="text-[10px] font-semibold uppercase tracking-wider">
+              Reference mismatches — accepting may produce unexpected results
+            </div>
+            <ul className="mt-0.5 space-y-0.5">
+              {issues.slice(0, 4).map((iss, i) => (
+                <li key={i}>· {iss}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t border-border bg-secondary/40 px-4 py-2">
+        <button
+          onClick={onReject}
+          className="rounded border border-input bg-background px-3 py-1 font-medium hover:bg-secondary"
+        >
+          Reject
+        </button>
+        <button
+          onClick={onAccept}
+          className="rounded bg-primary px-3 py-1 font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Accept{moves.length > 0 ? ` · ${moves.length} move${moves.length === 1 ? "" : "s"}` : ""}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function WorkspaceMenu({
   workspacePath,
   lastSyncAt,
@@ -725,6 +939,12 @@ function WorkspaceMenu({
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [generateMode, setGenerateMode] = React.useState(false);
+  const [requestType, setRequestType] = React.useState<
+    "suggest-arrangement" | "review-table" | "find-conflicts" | "explain-arrangement"
+  >("suggest-arrangement");
+  const [requestNote, setRequestNote] = React.useState("");
+  const [generated, setGenerated] = React.useState<string | null>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -796,6 +1016,29 @@ function WorkspaceMenu({
     }
   };
 
+  const generate = async () => {
+    if (!workspacePath) return;
+    setError(null);
+    setBusy("Writing request…");
+    try {
+      // Sync first so the agent reads the freshest state.
+      await workspaceClient.sync(workspacePath, state as unknown as Record<string, unknown>);
+      markSynced();
+      const result = await workspaceClient.createRequest({
+        path: workspacePath,
+        type: requestType,
+        note: requestNote || undefined,
+      });
+      setGenerated(result.filename);
+      setRequestNote("");
+      setGenerateMode(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const clearWs = async () => {
     if (!workspacePath) return;
     if (!confirm("Clear the workspace folder? Files in archive/ are kept.")) return;
@@ -847,7 +1090,69 @@ function WorkspaceMenu({
               </div>
             )}
           </div>
+          {generated && (
+            <div className="border-b border-border bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-700 dark:text-emerald-400">
+              Wrote <code className="font-mono">requests/{generated}</code>.
+              Run your agent in the workspace folder to process it.
+            </div>
+          )}
+          {generateMode ? (
+            <div className="border-b border-border px-3 py-2 text-xs">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Request type
+              </label>
+              <select
+                value={requestType}
+                onChange={(e) => setRequestType(e.target.value as typeof requestType)}
+                className="mb-2 block w-full rounded border border-input bg-background px-2 py-1 text-xs"
+              >
+                <option value="suggest-arrangement">Suggest arrangement</option>
+                <option value="review-table">Review a table</option>
+                <option value="find-conflicts">Find conflicts</option>
+                <option value="explain-arrangement">Explain arrangement</option>
+              </select>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Note for the agent (optional)
+              </label>
+              <textarea
+                value={requestNote}
+                onChange={(e) => setRequestNote(e.target.value)}
+                rows={3}
+                placeholder="e.g. focus on Table 12, that's our legacy giving conversation."
+                className="mb-2 block w-full resize-none rounded border border-input bg-background px-2 py-1 text-xs"
+              />
+              <div className="flex justify-end gap-1.5">
+                <button
+                  onClick={() => setGenerateMode(false)}
+                  className="rounded border border-input bg-background px-2 py-1 text-[11px] hover:bg-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={generate}
+                  disabled={busy !== null}
+                  className="rounded bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {busy ?? "Generate request"}
+                </button>
+              </div>
+            </div>
+          ) : null}
           <ul className="text-xs">
+            {!generateMode && (
+              <li>
+                <button
+                  onClick={() => {
+                    setGenerated(null);
+                    setGenerateMode(true);
+                  }}
+                  disabled={busy !== null}
+                  className="block w-full px-3 py-2 text-left font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                >
+                  + Generate request…
+                </button>
+              </li>
+            )}
             <li>
               <button
                 onClick={syncNow}

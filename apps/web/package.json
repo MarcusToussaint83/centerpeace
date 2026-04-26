@@ -12,8 +12,12 @@
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "chokidar": "^5.0.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "gray-matter": "^4.0.3",
     "konva": "^9.3.16",
     "lucide-react": "^0.454.0",
     "next": "^15.5.0",
