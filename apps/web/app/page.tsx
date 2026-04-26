@@ -285,47 +285,8 @@ function Closing() {
 
 function SiteFooter() {
   return (
-    <footer className="relative border-t border-border">
-      <div className="container flex flex-col items-center justify-between gap-4 py-8 text-sm text-muted-foreground sm:flex-row">
-        <div className="flex items-center gap-2">
-          <Logo />
-          <span>Centerpeace · MIT licensed</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <a
-            className="hover:text-foreground"
-            href={`${REPO_URL}/blob/main/VISION.md`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Vision
-          </a>
-          <a
-            className="hover:text-foreground"
-            href={`${REPO_URL}/blob/main/ARCHITECTURE.md`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Architecture
-          </a>
-          <a
-            className="hover:text-foreground"
-            href={`${REPO_URL}/blob/main/BUILD_PLAN.md`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Build plan
-          </a>
-          <a
-            className="hover:text-foreground"
-            href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
-        </div>
-      </div>
+    <footer className="py-6 text-center text-xs text-muted-foreground">
+      © 2026 Marcus Toussaint
     </footer>
   );
 }
