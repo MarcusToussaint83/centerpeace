@@ -2,9 +2,9 @@
  * Browser-side client for /api/workspace.
  *
  * Thin wrapper that returns parsed JSON or throws with a useful message.
- * Server-side filesystem unavailability surfaces here as a 5xx; callers
- * are expected to fail soft.
  */
+
+import type { ApplyPayload } from "./apply";
 
 type Action =
   | "default-path"
@@ -12,10 +12,8 @@ type Action =
   | "sync"
   | "status"
   | "clear"
-  | "create-request"
-  | "accept-response"
-  | "reject-response"
-  | "open-folder";
+  | "open-folder"
+  | "archive-applied";
 
 async function call<T>(action: Action, payload: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch("/api/workspace", {
@@ -41,41 +39,26 @@ export const workspaceClient = {
     call<{ exists: boolean; hasReadme?: boolean; hasState?: boolean }>("status", { path }),
   clear: (path: string) => call<{ ok: true }>("clear", { path }),
   openFolder: (path: string) => call<{ ok: true }>("open-folder", { path }),
-
-  createRequest: (input: {
+  archiveApplied: (input: {
     path: string;
-    type: string;
+    file: string;
     note?: string;
-    scope?: Record<string, unknown>;
-  }) =>
-    call<{ filename: string; absolutePath: string; requestId: string }>(
-      "create-request",
-      input,
-    ),
-
-  acceptResponse: (input: {
-    path: string;
-    file: string;
-    requestId: string;
-    requestType: string;
-    summary: string;
-  }) => call<{ ok: true }>("accept-response", input),
-
-  rejectResponse: (input: {
-    path: string;
-    file: string;
-    requestId: string;
-    requestType: string;
-    summary: string;
-  }) => call<{ ok: true }>("reject-response", input),
+    agent?: string;
+    summary: {
+      moves: number;
+      removed: number;
+      constraintsAdded: number;
+      constraintsRemoved: number;
+    };
+  }) => call<{ ok: true }>("archive-applied", input),
 };
 
 /**
  * Subscribe to workspace events. Returns an unsubscribe function.
- * Handlers fire when validated proposals arrive or invalid files are seen.
+ * Fires when validated apply files arrive, or when an invalid file is seen.
  */
 export interface WorkspaceEventHandlers {
-  onProposal?: (e: { file: string; response: import("./validate").AgentResponse }) => void;
+  onApplied?: (e: { file: string; payload: ApplyPayload }) => void;
   onInvalid?: (e: { file: string; errors: string[] }) => void;
   onError?: (err: unknown) => void;
 }
@@ -86,9 +69,9 @@ export function subscribeWorkspace(
 ): () => void {
   const url = `/api/workspace/events?path=${encodeURIComponent(workspacePath)}`;
   const es = new EventSource(url);
-  es.addEventListener("proposal", (ev) => {
+  es.addEventListener("applied", (ev) => {
     try {
-      handlers.onProposal?.(JSON.parse((ev as MessageEvent).data));
+      handlers.onApplied?.(JSON.parse((ev as MessageEvent).data));
     } catch (e) {
       handlers.onError?.(e);
     }

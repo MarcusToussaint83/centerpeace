@@ -11,9 +11,8 @@ import {
   GITIGNORE,
   ORG_CONTEXT,
   README,
-  REQUEST_SCHEMA,
-  RESPONSE_SCHEMA,
-  EXAMPLE_RESPONSE,
+  APPLY_SCHEMA,
+  EXAMPLE_APPLY,
 } from "./templates";
 import { workspacePaths, type WorkspacePaths } from "./paths";
 
@@ -51,8 +50,6 @@ export async function bootstrapWorkspace(root: string): Promise<BootstrapResult>
   await fs.mkdir(p.root, { recursive: true });
   await fs.mkdir(p.schemas, { recursive: true });
   await fs.mkdir(p.examples, { recursive: true });
-  await fs.mkdir(p.requests, { recursive: true });
-  await fs.mkdir(p.responses, { recursive: true });
   await fs.mkdir(p.proposedChanges, { recursive: true });
   await fs.mkdir(p.archive, { recursive: true });
 
@@ -62,13 +59,12 @@ export async function bootstrapWorkspace(root: string): Promise<BootstrapResult>
   if (await writeIfMissing(p.orgContext, ORG_CONTEXT)) wrote.push(p.orgContext);
   if (await writeIfMissing(p.gitignore, GITIGNORE)) wrote.push(p.gitignore);
 
-  // Schemas — these are versioned API and we always rewrite them.
-  await fs.writeFile(p.requestSchema, JSON.stringify(REQUEST_SCHEMA, null, 2), "utf8");
-  wrote.push(p.requestSchema);
-  await fs.writeFile(p.responseSchema, JSON.stringify(RESPONSE_SCHEMA, null, 2), "utf8");
-  wrote.push(p.responseSchema);
-  await fs.writeFile(p.exampleResponse, EXAMPLE_RESPONSE, "utf8");
-  wrote.push(p.exampleResponse);
+  // Schemas — versioned API, always rewritten so the agent has the
+  // current contract even after a Centerpeace upgrade.
+  await fs.writeFile(p.applySchema, JSON.stringify(APPLY_SCHEMA, null, 2), "utf8");
+  wrote.push(p.applySchema);
+  await fs.writeFile(p.exampleApply, EXAMPLE_APPLY, "utf8");
+  wrote.push(p.exampleApply);
 
   return { root: p.root, created, wrote };
 }
@@ -86,13 +82,12 @@ export async function clearWorkspace(root: string): Promise<void> {
     p.guestsCsv,
     p.tablesMd,
     p.constraintsMd,
-    p.requestSchema,
-    p.responseSchema,
-    p.exampleResponse,
+    p.applySchema,
+    p.exampleApply,
   ]) {
     await fs.rm(target, { force: true });
   }
-  for (const dir of [p.requests, p.responses, p.proposedChanges, p.schemas, p.examples]) {
+  for (const dir of [p.proposedChanges, p.schemas, p.examples]) {
     await fs.rm(dir, { recursive: true, force: true });
   }
 }

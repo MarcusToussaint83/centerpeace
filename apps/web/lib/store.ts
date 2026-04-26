@@ -75,6 +75,24 @@ interface Actions {
 
   /** Apply a batch of seat -> guest placements (overwrites existing, ignores empty). */
   applyPlacements(placements: Record<SeatKey, GuestId>): void;
+  /**
+   * Atomically apply a change from the unified pipeline (file watcher, chat
+   * tool, etc.). All sources of agent-driven mutation funnel through here so
+   * the version-snapshot + conflict-handling logic only lives in one place.
+   */
+  applyChange(change: {
+    assignments?: Record<SeatKey, GuestId>;
+    removeAssignments?: SeatKey[];
+    addConstraints?: Array<{
+      kind: ConstraintKind;
+      guestAId: GuestId;
+      guestBId: GuestId;
+      note?: string;
+    }>;
+    removeConstraints?: string[];
+    /** Optional label saved with the version snapshot. */
+    label?: string;
+  }): { moves: number; removed: number; constraintsAdded: number; constraintsRemoved: number };
   /** Run the deterministic auto-seater on the current state and return its result. */
   autoSeat(): import("./auto-seat").AutoSeatResult;
   /**
@@ -244,6 +262,64 @@ export const useEventStore = create<Store>()(
               ? null
               : s.pickedGuestId,
         })),
+
+      applyChange: (change) => {
+        const moves = Object.keys(change.assignments ?? {}).length;
+        const removed = (change.removeAssignments ?? []).length;
+        const constraintsAdded = (change.addConstraints ?? []).length;
+        const constraintsRemoved = (change.removeConstraints ?? []).length;
+        const total = moves + removed + constraintsAdded + constraintsRemoved;
+        if (total === 0) return { moves: 0, removed: 0, constraintsAdded: 0, constraintsRemoved: 0 };
+
+        // Snapshot first so the user can always undo, regardless of source.
+        const label = change.label ?? `Agent · ${[
+          moves ? `${moves} move${moves === 1 ? "" : "s"}` : null,
+          removed ? `${removed} cleared` : null,
+          constraintsAdded ? `${constraintsAdded} rule${constraintsAdded === 1 ? "" : "s"}` : null,
+          constraintsRemoved ? `${constraintsRemoved} rule${constraintsRemoved === 1 ? "" : "s"} removed` : null,
+        ].filter(Boolean).join(" + ")}`;
+        get().saveVersion(label);
+
+        set((s) => {
+          // Reverse-lookup so we can drop a guest from any seat where they
+          // were previously seated when an agent moves them.
+          const next: Record<SeatKey, GuestId> = { ...s.assignments };
+          if (change.assignments) {
+            const incomingGuestIds = new Set(Object.values(change.assignments));
+            for (const key of Object.keys(next)) {
+              if (next[key] && incomingGuestIds.has(next[key]!)) delete next[key];
+            }
+            for (const [seat, gid] of Object.entries(change.assignments)) {
+              next[seat] = gid;
+            }
+          }
+          if (change.removeAssignments) {
+            for (const seat of change.removeAssignments) delete next[seat];
+          }
+
+          let constraints = s.constraints;
+          if (change.removeConstraints?.length) {
+            const ids = new Set(change.removeConstraints);
+            constraints = constraints.filter((c) => !ids.has(c.id));
+          }
+          if (change.addConstraints?.length) {
+            const additions = change.addConstraints
+              .filter((c) => c.guestAId !== c.guestBId)
+              .map((c) => ({
+                id: `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+                kind: c.kind,
+                a: c.guestAId,
+                b: c.guestBId,
+                note: c.note,
+              }));
+            constraints = [...constraints, ...additions];
+          }
+
+          return { assignments: next, constraints, pickedGuestId: null };
+        });
+
+        return { moves, removed, constraintsAdded, constraintsRemoved };
+      },
 
       autoSeat: () => {
         const s = get();
