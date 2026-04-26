@@ -50,6 +50,17 @@ interface WorkspaceState {
   lastSyncAt: string | null;
 }
 
+export type AIProvider = "anthropic" | "openai";
+
+interface AISettingsState {
+  /** Configured BYOK provider, or null when unconfigured. */
+  aiProvider: AIProvider | null;
+  /** Model identifier passed to the provider (e.g. claude-3-5-sonnet-latest). */
+  aiModel: string | null;
+  /** API key. Stored in localStorage, sent only to /api/ai/chat per request. */
+  aiKey: string | null;
+}
+
 interface Actions {
   reset(): void;
 
@@ -119,9 +130,12 @@ interface Actions {
   setWorkspacePath(p: string | null): void;
   /** Record the most recent successful sync. */
   markSynced(): void;
+
+  /** Save BYOK provider configuration. Pass null fields to clear. */
+  setAIConfig(input: { provider: AIProvider | null; model: string | null; key: string | null }): void;
 }
 
-export type Store = EventState & SelectionState & UIState & VersionsState & WorkspaceState & Actions;
+export type Store = EventState & SelectionState & UIState & VersionsState & WorkspaceState & AISettingsState & Actions;
 
 const initialEvent = buildDemoEvent();
 
@@ -135,6 +149,9 @@ export const useEventStore = create<Store>()(
       versions: [],
       workspacePath: null,
       lastSyncAt: null,
+      aiProvider: null,
+      aiModel: null,
+      aiKey: null,
 
       reset: () => {
         const fresh = buildDemoEvent();
@@ -392,6 +409,9 @@ export const useEventStore = create<Store>()(
       setWorkspacePath: (p) => set({ workspacePath: p, lastSyncAt: null }),
       markSynced: () => set({ lastSyncAt: new Date().toISOString() }),
 
+      setAIConfig: ({ provider, model, key }) =>
+        set({ aiProvider: provider, aiModel: model, aiKey: key }),
+
       importGuests: (rows) => {
         const existing = new Set(
           get().guests.map((g) => g.name.trim().toLowerCase()),
@@ -434,6 +454,9 @@ export const useEventStore = create<Store>()(
         constraints: s.constraints,
         versions: s.versions,
         workspacePath: s.workspacePath,
+        aiProvider: s.aiProvider,
+        aiModel: s.aiModel,
+        aiKey: s.aiKey,
       }),
       version: 3,
       migrate: (persistedState, version) => {

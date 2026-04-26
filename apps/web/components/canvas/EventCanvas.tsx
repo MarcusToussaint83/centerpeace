@@ -20,6 +20,7 @@ import {
   findNearestSeat,
 } from "@/lib/table-geometry";
 import { TableInspector } from "@/components/panels/TableInspector";
+import { AISettingsButton } from "@/components/panels/AISettings";
 import { exportPNG, exportCSV } from "@/lib/export";
 import { workspaceClient, subscribeWorkspace } from "@/lib/workspace/client";
 
@@ -642,6 +643,7 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
             setWorkspacePath={setWorkspacePath}
             markSynced={markSynced}
           />
+          <AISettingsButton />
           <span className="mx-1 h-4 w-px bg-border" />
           <button
             className="rounded px-2 py-1 font-medium hover:bg-secondary"
