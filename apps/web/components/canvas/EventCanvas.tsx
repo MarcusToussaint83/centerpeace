@@ -473,6 +473,7 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
   );
   const setAssignments = useEventStore((s) => s.setAssignments);
   const applyPlacements = useEventStore((s) => s.applyPlacements);
+  const addConstraintFn = useEventStore((s) => s.addConstraint);
   const saveVersionFn = useEventStore((s) => s.saveVersion);
   const constraintsForRef = useEventStore((s) => s.constraints);
   const pickedGuest = guests.find((g) => g.id === pickedGuestId);
@@ -531,13 +532,32 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
   const acceptProposal = async () => {
     if (!currentProposal || !workspacePath) return;
     const moves = currentProposal.response.proposedAssignments ?? [];
-    if (moves.length > 0) {
+    const newConstraints = currentProposal.response.proposedConstraints ?? [];
+    if (moves.length > 0 || newConstraints.length > 0) {
       saveVersionFn(`Before agent: ${currentProposal.response.summary.slice(0, 40)}`);
+    }
+    if (moves.length > 0) {
       const placements: Record<string, string> = {};
       for (const m of moves) {
         placements[`${m.tableId}:${m.seatIndex}`] = m.guestId;
       }
       applyPlacements(placements);
+    }
+    // Translate agent constraint relationships into store kinds. We only
+    // accept binary guest-guest constraints in v1; prefer-table is parked.
+    for (const c of newConstraints) {
+      if (
+        c.guestAId &&
+        c.guestBId &&
+        (c.relationship === "must_sit_with" || c.relationship === "must_not_sit_with")
+      ) {
+        addConstraintFn({
+          kind: c.relationship === "must_sit_with" ? "must-sit-with" : "must-not-sit-with",
+          a: c.guestAId,
+          b: c.guestBId,
+          note: c.reason,
+        });
+      }
     }
     try {
       await workspaceClient.acceptResponse({
@@ -812,7 +832,19 @@ function ProposalCard({
   onReject: () => void;
 }) {
   const moves = proposal.proposedAssignments ?? [];
+  const newConstraints = proposal.proposedConstraints ?? [];
   const warnings = proposal.warnings ?? [];
+  const hasChanges = moves.length > 0 || newConstraints.length > 0;
+  const acceptLabel = hasChanges
+    ? `Accept · ${[
+        moves.length ? `${moves.length} move${moves.length === 1 ? "" : "s"}` : null,
+        newConstraints.length
+          ? `${newConstraints.length} rule${newConstraints.length === 1 ? "" : "s"}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" + ")}`
+    : "Dismiss";
 
   return (
     <div className="pointer-events-auto absolute bottom-20 left-1/2 w-[min(640px,calc(100%-2rem))] -translate-x-1/2 overflow-hidden rounded-lg border border-primary/40 bg-card/95 text-xs shadow-2xl backdrop-blur">
@@ -871,6 +903,24 @@ function ProposalCard({
             </ul>
           </div>
         )}
+        {newConstraints.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {newConstraints.length} proposed rule{newConstraints.length === 1 ? "" : "s"}
+            </div>
+            <ul className="space-y-1.5">
+              {newConstraints.slice(0, 6).map((c, i) => (
+                <li key={i} className="rounded border border-border/60 bg-background/50 px-2 py-1.5">
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    {c.relationship}
+                    {c.guestAId && c.guestBId ? ` · ${c.guestAId} ↔ ${c.guestBId}` : ""}
+                  </div>
+                  <div className="mt-0.5">{c.reason}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {warnings.length > 0 && (
           <div className="mt-3">
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
@@ -907,7 +957,7 @@ function ProposalCard({
           onClick={onAccept}
           className="rounded bg-primary px-3 py-1 font-medium text-primary-foreground hover:bg-primary/90"
         >
-          Accept{moves.length > 0 ? ` · ${moves.length} move${moves.length === 1 ? "" : "s"}` : ""}
+          {acceptLabel}
         </button>
       </div>
     </div>
@@ -1153,6 +1203,22 @@ function WorkspaceMenu({
                 </button>
               </li>
             )}
+            <li>
+              <button
+                onClick={async () => {
+                  if (!workspacePath) return;
+                  try {
+                    await workspaceClient.openFolder(workspacePath);
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : String(e));
+                  }
+                }}
+                disabled={busy !== null}
+                className="block w-full px-3 py-2 text-left hover:bg-secondary/60 disabled:opacity-50"
+              >
+                Open folder
+              </button>
+            </li>
             <li>
               <button
                 onClick={syncNow}

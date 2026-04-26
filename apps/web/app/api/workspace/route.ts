@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { exec } from "node:child_process";
 
 import { bootstrapWorkspace, clearWorkspace } from "@/lib/workspace/bootstrap";
 import { defaultWorkspacePath, workspacePaths } from "@/lib/workspace/paths";
@@ -107,6 +108,29 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: "Invalid workspace path." }, { status: 400 });
         }
         await clearWorkspace(root);
+        return NextResponse.json({ ok: true });
+      }
+
+      case "open-folder": {
+        const root = String(body?.path ?? "");
+        if (!isSafeWorkspacePath(root)) {
+          return NextResponse.json({ error: "Invalid workspace path." }, { status: 400 });
+        }
+        if (!(await exists(root))) {
+          return NextResponse.json({ error: "Folder does not exist." }, { status: 404 });
+        }
+        // Quote the path to defend against spaces; isSafeWorkspacePath already
+        // rejects traversal and anything outside HOME.
+        const quoted = JSON.stringify(root);
+        const cmd =
+          process.platform === "darwin"
+            ? `open ${quoted}`
+            : process.platform === "win32"
+              ? `explorer ${quoted}`
+              : `xdg-open ${quoted}`;
+        await new Promise<void>((resolve, reject) => {
+          exec(cmd, (err) => (err ? reject(err) : resolve()));
+        });
         return NextResponse.json({ ok: true });
       }
 

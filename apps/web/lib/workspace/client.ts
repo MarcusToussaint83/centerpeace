@@ -14,7 +14,8 @@ type Action =
   | "clear"
   | "create-request"
   | "accept-response"
-  | "reject-response";
+  | "reject-response"
+  | "open-folder";
 
 async function call<T>(action: Action, payload: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch("/api/workspace", {
@@ -39,6 +40,7 @@ export const workspaceClient = {
   status: (path: string) =>
     call<{ exists: boolean; hasReadme?: boolean; hasState?: boolean }>("status", { path }),
   clear: (path: string) => call<{ ok: true }>("clear", { path }),
+  openFolder: (path: string) => call<{ ok: true }>("open-folder", { path }),
 
   createRequest: (input: {
     path: string;
