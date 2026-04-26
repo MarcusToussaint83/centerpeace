@@ -9,7 +9,7 @@
  * Keep this file framework-free; the canvas imports it and so do tests later.
  */
 
-import type { CenterpeaceTable } from "./types";
+import { seatKey, type CenterpeaceTable, type SeatKey } from "./types";
 
 /** How far seat centers sit outside the tabletop edge. */
 export const SEAT_OFFSET = 26;
@@ -95,4 +95,36 @@ export function worldSeatPosition(
   const local = localSeatPosition(table, index);
   const r = rotate(local, table.rotation);
   return { x: table.x + r.x, y: table.y + r.y };
+}
+
+/**
+ * Find the seat closest to a world point, within `maxDistance`.
+ * Returns the seat key or null if nothing is close enough.
+ *
+ * Used for drop-target resolution when dragging a guest from the panel.
+ */
+export function findNearestSeat(
+  tables: CenterpeaceTable[],
+  worldX: number,
+  worldY: number,
+  maxDistance: number,
+): SeatKey | null {
+  let best: { key: SeatKey; d2: number } | null = null;
+  const maxD2 = maxDistance * maxDistance;
+  for (const table of tables) {
+    // Cheap bounding-box cull: if point is far from the table center, skip.
+    const dx = worldX - table.x;
+    const dy = worldY - table.y;
+    // Loose radius covers seats (farthest seat from center + threshold).
+    const approx = Math.hypot(dx, dy);
+    if (approx > (SEAT_OFFSET + 200)) continue;
+    for (let i = 0; i < table.capacity; i++) {
+      const p = worldSeatPosition(table, i);
+      const d2 = (p.x - worldX) ** 2 + (p.y - worldY) ** 2;
+      if (d2 <= maxD2 && (!best || d2 < best.d2)) {
+        best = { key: seatKey(table.id, i), d2 };
+      }
+    }
+  }
+  return best?.key ?? null;
 }

@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Search, Users, X } from "lucide-react";
+import { FileUp, Search, Users, X } from "lucide-react";
 
 import { useShallow } from "zustand/react/shallow";
 
 import { useEventStore, selectUnseatedGuests } from "@/lib/store";
 import { parseSeatKey } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ImportGuestsModal } from "./ImportGuestsModal";
 
 export function GuestPanel() {
   const unseated = useEventStore(useShallow(selectUnseatedGuests));
@@ -22,6 +23,7 @@ export function GuestPanel() {
   );
 
   const [query, setQuery] = React.useState("");
+  const [importOpen, setImportOpen] = React.useState(false);
   const filterFn = React.useCallback(
     (name: string, affiliation?: string) => {
       if (!query.trim()) return true;
@@ -37,14 +39,25 @@ export function GuestPanel() {
   return (
     <aside className="flex h-full w-80 flex-col border-r border-border bg-card">
       <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 font-semibold tracking-tight">
             <Users className="size-4 text-muted-foreground" />
             Guests
           </h2>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {seated.length}/{guests.length} seated
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {seated.length}/{guests.length}
+            </span>
+            <button
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-1 rounded-md border border-input bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:border-input/80 hover:bg-secondary/50 hover:text-foreground"
+              aria-label="Import guests"
+              title="Import guests from CSV"
+            >
+              <FileUp className="size-3" />
+              Import
+            </button>
+          </div>
         </div>
         <div className="relative mt-3">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -76,6 +89,7 @@ export function GuestPanel() {
             .map((g) => (
               <GuestRow
                 key={g.id}
+                guestId={g.id}
                 name={g.name}
                 affiliation={g.affiliation}
                 picked={pickedGuestId === g.id}
@@ -105,6 +119,7 @@ export function GuestPanel() {
               return (
                 <GuestRow
                   key={g.id}
+                  guestId={g.id}
                   name={g.name}
                   affiliation={g.affiliation}
                   meta={tableLabel}
@@ -117,9 +132,14 @@ export function GuestPanel() {
       </div>
 
       <div className="border-t border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-        Click a guest to pick them up, then click a seat. Click a seated guest
-        to move them. Click them again to unseat.
+        Drag a guest onto a seat, or click to pick up then click a seat. Click
+        a seated guest to move or unseat them.
       </div>
+
+      <ImportGuestsModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+      />
     </aside>
   );
 }
@@ -145,24 +165,41 @@ function Section({
 }
 
 function GuestRow({
+  guestId,
   name,
   affiliation,
   meta,
   picked,
   onClick,
 }: {
+  guestId: string;
   name: string;
   affiliation?: string;
   meta?: string;
   picked: boolean;
   onClick: () => void;
 }) {
+  const pickGuest = useEventStore((s) => s.pickGuest);
   return (
     <li>
       <button
+        draggable
+        onDragStart={(e) => {
+          // Carry the guest id across the DnD boundary. The canvas'
+          // onDrop handler reads this back and places at the nearest seat.
+          e.dataTransfer.setData("application/x-centerpeace-guest", guestId);
+          e.dataTransfer.effectAllowed = "move";
+          // Pick the guest so the canvas' drop-target tinting kicks in.
+          pickGuest(guestId);
+        }}
+        onDragEnd={() => {
+          // If the drop didn't land on a seat, leave the guest picked so the
+          // user can click-place instead. Otherwise placeAtSeat already
+          // cleared the pickup.
+        }}
         onClick={onClick}
         className={cn(
-          "group flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors",
+          "group flex w-full cursor-grab items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors active:cursor-grabbing",
           picked
             ? "bg-primary text-primary-foreground"
             : "hover:bg-secondary/70",

@@ -55,6 +55,18 @@ interface Actions {
   applyPlacements(placements: Record<SeatKey, GuestId>): void;
   /** Run the deterministic auto-seater on the current state and return its result. */
   autoSeat(): import("./auto-seat").AutoSeatResult;
+  /**
+   * Clear all assignments and re-run the auto-seater on a fresh slate.
+   * Returns the result plus the previous assignments so the caller can offer
+   * an "undo" affordance to the user.
+   */
+  reseatAll(): import("./auto-seat").AutoSeatResult & {
+    previousAssignments: Record<SeatKey, GuestId>;
+  };
+  /** Replace all assignments wholesale (used by undo). */
+  setAssignments(assignments: Record<SeatKey, GuestId>): void;
+  /** Append guests in bulk; ignores duplicate names. Returns number actually added. */
+  importGuests(rows: Array<{ name: string; affiliation?: string; notes?: string }>): number;
 }
 
 export type Store = EventState & SelectionState & UIState & Actions;
@@ -205,6 +217,40 @@ export const useEventStore = create<Store>()(
           }));
         }
         return result;
+      },
+
+      reseatAll: () => {
+        const s = get();
+        const previousAssignments = { ...s.assignments };
+        // Run auto-seater against an emptied state so every guest is treated
+        // as unseated. We call the pure helper directly with a synthetic state
+        // to avoid mutating the store twice.
+        const result = runAutoSeat({ ...s, assignments: {} });
+        set(() => ({ assignments: result.placements, pickedGuestId: null }));
+        return { ...result, previousAssignments };
+      },
+
+      setAssignments: (assignments) =>
+        set(() => ({ assignments: { ...assignments }, pickedGuestId: null })),
+
+      importGuests: (rows) => {
+        const existing = new Set(
+          get().guests.map((g) => g.name.trim().toLowerCase()),
+        );
+        const additions = rows
+          .map((r) => ({
+            name: r.name.trim(),
+            affiliation: r.affiliation?.trim() || undefined,
+            notes: r.notes?.trim() || undefined,
+          }))
+          .filter((r) => r.name && !existing.has(r.name.toLowerCase()))
+          .map((r) => ({
+            id: `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            ...r,
+          }));
+        if (additions.length === 0) return 0;
+        set((s) => ({ guests: [...s.guests, ...additions] }));
+        return additions.length;
       },
     }),
     {

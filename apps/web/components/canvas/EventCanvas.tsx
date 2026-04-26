@@ -17,6 +17,7 @@ import {
   worldSeatPosition,
   localSeatPosition,
   tableBounds,
+  findNearestSeat,
 } from "@/lib/table-geometry";
 import { TableInspector } from "@/components/panels/TableInspector";
 
@@ -95,8 +96,50 @@ export function EventCanvas() {
     dragStart.current = null;
   };
 
+  // HTML5 DnD: accept guest drops anywhere on the canvas, hit-test to the
+  // nearest seat in world space.
+  const placeAtSeat = useEventStore((s) => s.placeAtSeat);
+  const pickGuest = useEventStore((s) => s.pickGuest);
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (e.dataTransfer.types.includes("application/x-centerpeace-guest")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    }
+  };
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    const guestId = e.dataTransfer.getData("application/x-centerpeace-guest");
+    if (!guestId) return;
+    e.preventDefault();
+
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    // Reverse of Stage offset math in render (offset = size/2 + camera + world*scale).
+    const worldX = (localX - offsetX) / camera.scale;
+    const worldY = (localY - offsetY) / camera.scale;
+
+    // Nearest seat within a threshold. 32 world-units matches visual seat size.
+    const nearest = findNearestSeat(
+      useEventStore.getState().tables,
+      worldX,
+      worldY,
+      32,
+    );
+    // Ensure the store has the correct pickedGuestId, then place.
+    pickGuest(guestId);
+    if (nearest) {
+      placeAtSeat(nearest);
+    }
+  };
+
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-hidden">
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full overflow-hidden"
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <Stage
         ref={stageRef}
         width={size.width}
@@ -395,26 +438,55 @@ function CanvasOverlays() {
   const guests = useEventStore((s) => s.guests);
   const addTable = useEventStore((s) => s.addTable);
   const autoSeat = useEventStore((s) => s.autoSeat);
+  const reseatAll = useEventStore((s) => s.reseatAll);
+  const setAssignments = useEventStore((s) => s.setAssignments);
   const pickedGuest = guests.find((g) => g.id === pickedGuestId);
 
   // Toast surfaces the auto-seater's summary for a few seconds.
   const [toast, setToast] = React.useState<{
+    title: string;
     placed: number;
     unplaced: number;
     summary: string[];
+    undo?: () => void;
   } | null>(null);
   React.useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 6000);
+    // Reseat toasts stick longer because the user might want to undo.
+    const dur = toast.undo ? 10000 : 6000;
+    const t = setTimeout(() => setToast(null), dur);
     return () => clearTimeout(t);
   }, [toast]);
 
   const runAutoSeat = () => {
     const result = autoSeat();
     setToast({
+      title: "Auto-seated unplaced guests",
       placed: Object.keys(result.placements).length,
       unplaced: result.unplaced.length,
       summary: result.summary,
+    });
+  };
+
+  const runReseatAll = () => {
+    if (
+      !confirm(
+        "Reseat everyone from scratch? Existing seat assignments will be replaced. You can undo from the toast.",
+      )
+    ) {
+      return;
+    }
+    const result = reseatAll();
+    const snapshot = result.previousAssignments;
+    setToast({
+      title: "Reseated everyone from scratch",
+      placed: Object.keys(result.placements).length,
+      unplaced: result.unplaced.length,
+      summary: result.summary,
+      undo: () => {
+        setAssignments(snapshot);
+        setToast(null);
+      },
     });
   };
 
@@ -459,6 +531,13 @@ function CanvasOverlays() {
           >
             ✨ Auto-seat
           </button>
+          <button
+            className="rounded px-2 py-1 font-medium text-primary hover:bg-primary/10"
+            onClick={runReseatAll}
+            title="Clear all assignments and reseat from scratch"
+          >
+            ↻ Reseat all
+          </button>
           <span className="mx-1 h-4 w-px bg-border" />
           <button
             className="rounded px-2 py-1 font-medium hover:bg-secondary"
@@ -501,22 +580,35 @@ function CanvasOverlays() {
         <div className="pointer-events-auto absolute bottom-20 left-1/2 max-w-md -translate-x-1/2 rounded-lg border border-border bg-card/95 px-4 py-3 text-xs shadow-lg backdrop-blur">
           <div className="mb-1 flex items-center justify-between gap-3">
             <span className="font-semibold">
-              {toast.placed > 0
-                ? `Auto-seated ${toast.placed} guest${toast.placed === 1 ? "" : "s"}`
-                : "Nothing changed"}
+              {toast.title}
+              {toast.placed > 0 && (
+                <span className="ml-2 text-muted-foreground">
+                  · {toast.placed} placed
+                </span>
+              )}
               {toast.unplaced > 0 && (
                 <span className="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-700 dark:text-amber-400">
                   {toast.unplaced} unplaced
                 </span>
               )}
             </span>
-            <button
-              onClick={() => setToast(null)}
-              className="rounded p-0.5 text-muted-foreground hover:bg-secondary"
-              aria-label="Dismiss"
-            >
-              ×
-            </button>
+            <div className="flex items-center gap-2">
+              {toast.undo && (
+                <button
+                  onClick={toast.undo}
+                  className="rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium hover:bg-secondary"
+                >
+                  Undo
+                </button>
+              )}
+              <button
+                onClick={() => setToast(null)}
+                className="rounded p-0.5 text-muted-foreground hover:bg-secondary"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
           </div>
           <ul className="max-h-40 space-y-0.5 overflow-y-auto text-muted-foreground">
             {toast.summary.slice(0, 8).map((line, i) => (
