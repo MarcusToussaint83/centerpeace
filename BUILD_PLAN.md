@@ -224,21 +224,31 @@ saves "v2 — after dev review", exec restores an earlier version.
   - Workspace lifecycle: create, sync state, archive old files
   - State serialization: current-state.json, guests.csv, tables.md,
     constraints.md
+  - session.json: written after each request/response cycle, last 10
+    exchanges, enables conversational continuity across requests
+  - org-context.md: empty template shipped on first workspace setup,
+    never overwritten by app, owned by the org's team
   - Workspace README template (the agent system prompt)
   - JSON schemas in `schemas/` of every workspace
   - Example request/response pairs in `schemas/examples/`
   - chokidar file watcher on `responses/`
-  - Schema validation pipeline
+  - Schema validation pipeline supporting all response types including
+    `propose-constraint`
+  - Constraint write-back: accepted `propose-constraint` responses
+    persist to DB and trigger `constraints.md` rewrite
   - Server-Sent Events to push proposals to client
 - Settings UI:
   - Org level: default AI mode
   - Event level: override AI mode, configure workspace path
-  - Workspace setup wizard for agent mode
+  - Workspace setup wizard for agent mode (includes prompt to fill in
+    org-context.md)
 - Suggestions panel in canvas:
   - "Suggest arrangement" button
   - Preview overlay with arrows showing proposed moves
   - Accept all / accept some / reject
-  - "Explain this seating" button per table
+  - "Explain this seating" button per table — outputs either a
+    per-table explanation or a full-event stakeholder briefing document
+    suitable for sharing with an ED or board chair before the event
 - Graceful degradation: missing API key falls back to solver-only
 
 **Demo state**: in API mode, click "Suggest arrangement", 73 unseated guests

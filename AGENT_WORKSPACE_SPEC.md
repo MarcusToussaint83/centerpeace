@@ -18,7 +18,9 @@ at the path configured in the event settings (default
 ```
 <workspace>/
 ├── README.md                   # Instructions for the agent (READ FIRST)
+├── org-context.md              # Org-level knowledge: strategy, philosophy, recurring context
 ├── current-state.json          # Live event state (app-managed, read-only)
+├── session.json                # Last N request/response pairs for conversational continuity
 ├── guests.csv                  # Human-readable guest list
 ├── tables.md                   # Current seating, human-readable
 ├── constraints.md              # Hard and soft constraints, human-readable
@@ -38,14 +40,17 @@ at the path configured in the event settings (default
 
 ## File ownership and trust boundary
 
-- **App-managed files** (`current-state.json`, `guests.csv`, `tables.md`,
-  `constraints.md`, all of `schemas/`, all of `requests/`): the app
-  rewrites these on every state change. Agent must not edit them.
+- **App-managed files** (`current-state.json`, `session.json`, `guests.csv`,
+  `tables.md`, `constraints.md`, all of `schemas/`, all of `requests/`):
+  the app rewrites these on every state change. Agent must not edit them.
 - **Agent-managed files** (everything in `responses/` and
   `proposed-changes/`): the agent writes these. The app only reads them.
 - **Shared by convention**: `README.md` is shipped by the app but humans
   may edit it to refine the agent's behavior. Edits persist; the app
   does not overwrite README on state changes.
+- **Human-managed**: `org-context.md` is never touched by the app. It is
+  created once during workspace setup (as an empty template) and owned
+  entirely by the organization's team thereafter. It persists across events.
 
 The agent never directly mutates app state. It writes proposals to
 `responses/`. The app reads, validates against the response schema, and
@@ -136,6 +141,79 @@ Full event state, rewritten on every change. Schema:
 }
 ```
 
+## org-context.md
+
+This file is the organization's persistent knowledge layer. It is not
+event-specific — it lives at the workspace root and is referenced by the
+agent on every request, regardless of which event is active.
+
+The app ships an empty template on first workspace setup. The team fills
+it in and evolves it over time. A well-maintained `org-context.md` is the
+primary mechanism by which an organization's strategic intelligence is made
+available to the agent.
+
+Suggested sections (the team decides what's relevant):
+
+```markdown
+# [Org Name] — Seating Strategy Context
+
+## Donor tier definitions
+How we define and label donor stages, and what each stage means
+strategically at a dinner event.
+
+## Table strategy philosophy
+How we think about table composition — who goes near the CEO, how we mix
+donor stages, how we handle first-time attendees vs. long-time supporters.
+
+## Officer assignments
+Which development officers are assigned to which donor segments, and how
+we like to use officer-donor proximity at events.
+
+## Recurring relationship flags
+People or groups that carry context across every event — feuds, close
+friendships, family dynamics, sensitivities that don't live in the CRM.
+
+## Leadership preferences
+Any standing preferences from the ED, board chair, or other principals
+about their own seating or the seating near them.
+
+## Vocabulary
+Any internal terminology the agent should understand (e.g., "table host",
+"cultivation seat", "ask table", org-specific acronyms).
+```
+
+The agent reads this file before processing any request. There is no
+required schema — it is plain markdown written for a knowledgeable human
+audience, not a machine. Clear, direct prose works better than elaborate
+structure.
+
+## session.json
+
+Written by the app after each completed request/response cycle. Contains
+the last 10 exchanges in order, newest last. Allows the agent to maintain
+conversational continuity across multiple requests within a working session.
+
+```json
+{
+  "specVersion": "1.0",
+  "updatedAt": "2026-04-25T14:45:00Z",
+  "exchanges": [
+    {
+      "requestId": "req_abc001",
+      "requestType": "suggest-arrangement",
+      "requestSummary": "Propose seating for 73 unseated guests, prioritize Table 12 for the Hendersons.",
+      "responseSummary": "Placed 71 of 73 guests. Hendersons at Table 12. 2 guests unplaceable due to conflicting must-not-sit-with constraints.",
+      "completedAt": "2026-04-25T14:32:14Z",
+      "accepted": "partial"
+    }
+  ]
+}
+```
+
+The agent should read `session.json` before processing any request so it
+understands what has already been proposed and whether prior proposals were
+accepted, partially accepted, or rejected.
+
 ## Request files
 
 Requests are markdown files in `requests/` with a YAML frontmatter block.
@@ -186,9 +264,14 @@ Match the schema at `schemas/response.schema.json`, request type
   optionally re-arrange existing assignments.
 - `review-table` — analyze one specific table's seating and suggest
   improvements with reasoning.
-- `explain-arrangement` — produce a natural-language explanation of why
-  the current seating works (or doesn't) for a given table.
+- `explain-arrangement` — produce a natural-language explanation of the
+  seating rationale, either per-table or for the full event. May be
+  formatted as a stakeholder briefing suitable for sharing with an ED,
+  board chair, or event lead who does not have full donor context.
 - `find-conflicts` — identify constraint violations and suggest fixes.
+- `propose-constraint` — propose one or more new or modified constraints
+  based on conversational input from the user. The app validates and
+  persists accepted constraints, then rewrites `constraints.md`.
 
 ## Response files
 
@@ -228,6 +311,38 @@ Example for `suggest-arrangement`:
       "message": "Could not place gst_088 — no compatible table given the must_not_sit_with constraints with gst_044, gst_055, gst_066."
     }
   ],
+  "unfulfilledRequests": []
+}
+```
+
+Example for `propose-constraint`:
+
+```json
+{
+  "specVersion": "1.0",
+  "requestId": "req_xyz790",
+  "type": "propose-constraint",
+  "generatedAt": "2026-04-25T14:35:00Z",
+  "agent": "claude-cowork",
+  "summary": "Captured 2 constraints from user input.",
+  "proposedConstraints": [
+    {
+      "guestAId": "gst_019",
+      "guestBId": "gst_020",
+      "relationship": "must_not_sit_with",
+      "reason": "Former business partners — disputed exit. User said: 'don't put them anywhere near each other.'",
+      "derivedFrom": "user conversation"
+    },
+    {
+      "guestAId": "gst_031",
+      "guestBId": null,
+      "tableId": "tbl_001",
+      "relationship": "prefer_table",
+      "reason": "User wants Patricia near the board chair's table for a legacy giving conversation.",
+      "derivedFrom": "user conversation"
+    }
+  ],
+  "warnings": [],
   "unfulfilledRequests": []
 }
 ```

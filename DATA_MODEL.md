@@ -96,13 +96,22 @@ A person attending an event.
 | dietary          | text        | nullable, free-form                |
 | accessibility    | boolean     | needs accessible seating           |
 | attributes       | jsonb       | custom fields from CSV             |
-| notes            | text        | nullable, internal notes           |
+| notes            | text        | nullable, freetext relational context |
 | created_at       | timestamptz |                                    |
 
 The `attributes` jsonb column holds anything the CSV import didn't map to
 a known field — donor stage, assigned officer, giving capacity, etc. The
 shape is per-event (different orgs care about different attributes) and
 the UI exposes whatever keys are present.
+
+The `notes` field is intentionally unstructured. It is the place for
+relational and strategic context that does not fit a schema: history
+between guests, sensitivities, conversation goals for the evening, or
+anything a development officer knows that a CRM does not capture. This
+field is the primary input for AI soft reasoning — the agent reads it
+when deciding placement, and development staff should be encouraged to
+fill it in before running any AI suggestion. Notes are visible only to
+org members (never exported to guest-facing materials).
 
 ### guest_relationships
 
@@ -275,6 +284,7 @@ type GuestSummary = {
   partySize: number;
   accessibility: boolean;
   attributes: Record<string, unknown>;
+  notes: string | null;  // relational/strategic context for AI and staff
 };
 ```
 
