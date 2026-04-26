@@ -9,28 +9,51 @@
  * UX, and the agent operates on the workspace.
  */
 
-/** Agent-facing system prompt that lives at the root of the workspace. */
+/** Agent-facing onboarding doc + system prompt at the root of the workspace. */
 export const README = `# Centerpeace Agent Workspace
 
-You are an AI agent helping a nonprofit team build a seating chart for a
-fundraising event. The team uses Centerpeace, an open-source seating tool,
-and has shared this folder with you.
+This folder is a shared canvas between an AI agent and a development team
+working on a nonprofit fundraising seating chart. Centerpeace (the app)
+syncs the live event state here as you work. Your agent reads these files
+and writes back changes. Centerpeace renders the result.
 
-## How this works
+---
 
-Centerpeace continuously writes the live state of the event into this
-folder. You read those files. When the human asks you to do something —
-for example "populate the tables based on this CSV and these rules" — you
-write a single JSON file into \`proposed-changes/\` describing the
-assignments and constraints to apply. Centerpeace watches that folder,
-snapshots a version (so the human can undo), applies your change, and
-archives the file.
+## For the human: how to connect your agent
 
-You do not need permission. You do not write request/response pairs. The
-human is talking to you in your own app (Claude Cowork, Claude Code, etc).
-This folder is the *artifact*, not a chat protocol.
+This folder works with any tool that can read and write local files:
+**Claude Code**, **Claude Cowork (claude.ai/cowork)**, **Cursor**,
+**Aider**, ChatGPT desktop with the file connector, etc.
 
-## Files Centerpeace writes (read-only for you)
+### One-time setup (Claude Code or Cowork)
+
+1. Open your agent of choice.
+2. Tell it to work in **this folder** (in Claude Code: \`cd\` here and run
+   \`claude\`. In Cowork: drag this folder into the project picker).
+3. Paste the system prompt below as the agent's first message.
+4. Then ask for what you need in plain English. Examples:
+   - "Populate the tables. Big donors near Table 1. Spouses together."
+   - "Find any constraint violations and fix them with minimal moves."
+   - "Move Sarah Chen to Table 3."
+   - "Explain why Table 7 is laid out this way."
+
+### Copy-paste this system prompt for your agent
+
+> You are working in a Centerpeace agent workspace. Read \`README.md\` for
+> the file map and protocol. Read \`org-context.md\` for the team's
+> strategic preferences. Read \`current-state.json\` for the live event
+> state. Make changes by writing a single JSON file into
+> \`proposed-changes/\` matching \`schemas/apply.schema.json\`. Centerpeace
+> watches that folder and applies your changes automatically — there is no
+> approval step, so be careful. The human reviews on the canvas and undoes
+> via the History menu if needed. Always include a one-sentence \`note\`
+> field summarising what you did and why.
+
+---
+
+## For the agent: protocol
+
+### Files Centerpeace writes (you read these — never edit)
 
 | Path | Contents |
 |---|---|
@@ -39,23 +62,24 @@ This folder is the *artifact*, not a chat protocol.
 | \`tables.md\` | Current seating, rendered for humans. |
 | \`constraints.md\` | Hard relationship rules. |
 | \`org-context.md\` | **Read this first.** Org's persistent strategy. |
-| \`session.json\` | Last 10 changes you applied. Use for continuity. |
+| \`session.json\` | Last 10 changes applied. Use for continuity. |
 | \`schemas/apply.schema.json\` | The schema your output must match. |
 | \`schemas/examples/\` | Worked examples. |
 
-## Files you write
+### Files you write
 
-Drop a JSON file into \`proposed-changes/\`. Filename can be anything ending
-in \`.json\` — Centerpeace processes them in mtime order. After Centerpeace
-applies your change, the file moves to \`archive/<year>/<month>/\`.
+Drop a JSON file into \`proposed-changes/\`. Filename can be anything
+ending in \`.json\` — Centerpeace processes by mtime. After it applies your
+change, the file moves to \`archive/<year>/<month>/\`. Malformed files
+go to the same archive with a \`.invalid\` suffix.
 
-## The apply schema (the only schema you need)
+### The apply schema
 
 \`\`\`json
 {
   "specVersion": "1.0",
   "agent": "claude-cowork",
-  "note": "One-sentence summary the human will see in the toast.",
+  "note": "One-sentence summary the human sees in a toast.",
   "assignments": {
     "<tableId>:<seatIndex>": "<guestId>"
   },
@@ -72,25 +96,50 @@ applies your change, the file moves to \`archive/<year>/<month>/\`.
 }
 \`\`\`
 
-All four operation arrays are optional. \`assignments\` overwrites whatever
-was at that seat. Use \`removeAssignments\` to clear seats. Match the schema
-at \`schemas/apply.schema.json\` exactly — Centerpeace rejects malformed
-files (they go to archive/ with a \`.invalid\` suffix).
+All operation arrays are optional. \`assignments\` overwrites whatever was
+at that seat — and Centerpeace will pull the guest from any prior seat,
+so you don't need to write a paired \`removeAssignments\`.
 
-## Hard rules
+### Hard rules
 
 1. Read \`org-context.md\` and \`current-state.json\` before acting.
-2. Respect existing \`must-not-sit-with\` constraints. Violations will be
-   flagged red on the canvas and the human will likely undo.
-3. The \`note\` field should fit in one sentence. Longer reasoning belongs
-   in your chat with the human, not in the file.
+2. Respect existing \`must-not-sit-with\` constraints. Violations are
+   flagged red on the canvas and will probably be undone.
+3. The \`note\` field is one sentence. Longer reasoning belongs in your
+   chat with the human, not in the file.
 4. One file per logical change. Don't batch unrelated work.
 
-## Soft guidance
+### Soft guidance
 
-- If the human's intent is ambiguous, ask them in chat before writing.
-- Use \`session.json\` to avoid redoing work or repeating mistakes.
-- Brief is better. The human is iterating; they want to see results fast.
+- If the human's intent is ambiguous, ask in chat before writing.
+- Read \`session.json\` to avoid redoing work or repeating mistakes.
+- Brief is better — the human iterates fast.
+
+---
+
+## A worked example: spreadsheet → seated chart
+
+The development officer drops their guest list into Centerpeace via the
+CSV import button. They open Cowork (this folder is mounted) and say:
+
+> "Populate the tables. Big donors near Table 1, families together,
+>  spouses together, no table fuller than 8. See \`org-context.md\` for
+>  our donor tier philosophy."
+
+You read \`current-state.json\`, \`guests.csv\`, and \`org-context.md\`,
+then write \`proposed-changes/initial-seating.json\`:
+
+\`\`\`json
+{
+  "specVersion": "1.0",
+  "agent": "claude-cowork",
+  "note": "Seated 87 guests by donor tier; spouse pairs adjacent.",
+  "assignments": { "t_1:0": "g_001", "t_1:1": "g_002", ... }
+}
+\`\`\`
+
+Centerpeace applies it, the human sees the result on the canvas, drags two
+people they want closer, and prints the chart. Done.
 `;
 
 /** Default contents of org-context.md. The team owns this file thereafter. */

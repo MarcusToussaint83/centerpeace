@@ -71,24 +71,25 @@ See [AI_INTEGRATION.md](./AI_INTEGRATION.md) for setup guides.
 
 ### Agent mode in 30 seconds
 
-If you have Claude Code, Claude Cowork, Cursor, or any other coding agent:
+If you have Claude Code, Claude Cowork, Cursor, Aider, or any other tool
+that can read and write local files:
 
-1. Open Centerpeace, click **⌂ Workspace** in the canvas toolbar.
+1. Open Centerpeace, click the small **⌂** icon in the canvas toolbar.
 2. Confirm the default workspace path (`~/Documents/Centerpeace/<event>/`).
    Centerpeace bootstraps the folder with a README, schemas, and a live
-   snapshot of your event.
-3. In your agent (e.g. Claude Code), `cd` into that folder and say
-   "process the latest request". Centerpeace will already be syncing
-   `current-state.json` as you edit.
-4. Click **+ Generate request…** in Centerpeace, pick a request type, and
-   optionally leave a note. A request file appears in `requests/`.
-5. Your agent writes a response to `responses/`. Centerpeace validates
-   it and surfaces a proposal card on the canvas.
-6. **Accept** to apply the moves (a version snapshot is taken first), or
-   **Reject** to archive it.
+   snapshot of your event. The README contains a copy-pasteable system
+   prompt for your agent.
+3. Point your agent at the folder. Paste the system prompt. Then ask in
+   plain English: *"Populate the tables. Big donors near Table 1.
+   Spouses together."*
+4. The agent reads the workspace, drops a JSON file into
+   `proposed-changes/`. Centerpeace snapshots a version, applies the
+   change, and shows a toast: *"✨ claude-cowork · 87 placed · Undo"*.
+5. Tweak on the canvas, iterate with the agent, print when ready.
 
-No API keys. Uses your existing agent subscription. Your data never
-leaves your machine.
+No API keys, no protocol to learn, no per-request approval. Uses your
+existing agent subscription. Your data never leaves your machine. Every
+change is undoable from the **⧗ History** menu.
 
 ## Documentation
 
