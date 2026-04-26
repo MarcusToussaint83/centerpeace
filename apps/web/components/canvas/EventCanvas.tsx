@@ -440,6 +440,10 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
   const addTable = useEventStore((s) => s.addTable);
   const autoSeat = useEventStore((s) => s.autoSeat);
   const reseatAll = useEventStore((s) => s.reseatAll);
+  const versions = useEventStore((s) => s.versions);
+  const saveVersion = useEventStore((s) => s.saveVersion);
+  const restoreVersion = useEventStore((s) => s.restoreVersion);
+  const deleteVersion = useEventStore((s) => s.deleteVersion);
   const eventState = useEventStore(
     useShallow((s) => ({
       name: s.name,
@@ -547,6 +551,13 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
           >
             ↻ Reseat all
           </button>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <HistoryMenu
+            versions={versions}
+            saveVersion={saveVersion}
+            restoreVersion={restoreVersion}
+            deleteVersion={deleteVersion}
+          />
           <span className="mx-1 h-4 w-px bg-border" />
           <button
             className="rounded px-2 py-1 font-medium hover:bg-secondary"
@@ -662,4 +673,110 @@ function initialsOf(name: string) {
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
+}
+
+function HistoryMenu({
+  versions,
+  saveVersion,
+  restoreVersion,
+  deleteVersion,
+}: {
+  versions: import("@/lib/store").VersionSnapshot[];
+  saveVersion: (label?: string) => string;
+  restoreVersion: (id: string) => void;
+  deleteVersion: (id: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
+  // Click-outside to close.
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const onSave = () => {
+    const label = prompt("Label this version (optional):", "");
+    if (label === null) return;
+    saveVersion(label || undefined);
+  };
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        className="rounded px-2 py-1 font-medium hover:bg-secondary"
+        onClick={() => setOpen((v) => !v)}
+        title="Saved versions"
+      >
+        ⧗ History{versions.length > 0 ? ` · ${versions.length}` : ""}
+      </button>
+      {open && (
+        <div
+          className="absolute bottom-full left-0 mb-2 w-72 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          role="menu"
+        >
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Versions
+            </span>
+            <button
+              onClick={onSave}
+              className="rounded border border-input bg-background px-2 py-0.5 text-[11px] font-medium hover:bg-secondary"
+            >
+              + Save current
+            </button>
+          </div>
+          {versions.length === 0 ? (
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              No saved versions yet. Save one to snapshot this arrangement.
+            </div>
+          ) : (
+            <ul className="max-h-64 overflow-y-auto">
+              {versions.map((v) => (
+                <li
+                  key={v.id}
+                  className="group flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-xs last:border-b-0 hover:bg-secondary/60"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{v.label}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {new Date(v.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1 opacity-60 group-hover:opacity-100">
+                    <button
+                      onClick={() => {
+                        if (confirm(`Restore "${v.label}"? Current arrangement will be replaced.`)) {
+                          restoreVersion(v.id);
+                          setOpen(false);
+                        }
+                      }}
+                      className="rounded border border-input bg-background px-1.5 py-0.5 text-[10px] font-medium hover:bg-secondary"
+                      title="Restore this version"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete "${v.label}"?`)) deleteVersion(v.id);
+                      }}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title="Delete this version"
+                      aria-label="Delete version"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

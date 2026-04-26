@@ -28,6 +28,21 @@ interface UIState {
   camera: { x: number; y: number; scale: number };
 }
 
+/**
+ * Point-in-time snapshot of the event itself (no UI state).
+ * Persisted so users can restore arrangements without leaving the tab.
+ */
+export interface VersionSnapshot {
+  id: string;
+  label: string;
+  createdAt: number;
+  state: EventState;
+}
+
+interface VersionsState {
+  versions: VersionSnapshot[];
+}
+
 interface Actions {
   reset(): void;
 
@@ -67,9 +82,16 @@ interface Actions {
   setAssignments(assignments: Record<SeatKey, GuestId>): void;
   /** Append guests in bulk; ignores duplicate names. Returns number actually added. */
   importGuests(rows: Array<{ name: string; affiliation?: string; notes?: string }>): number;
+
+  /** Capture the current event state as a named version and return its id. */
+  saveVersion(label?: string): string;
+  /** Restore a saved version wholesale. Clears selection/pickup. */
+  restoreVersion(id: string): void;
+  /** Delete a saved version. */
+  deleteVersion(id: string): void;
 }
 
-export type Store = EventState & SelectionState & UIState & Actions;
+export type Store = EventState & SelectionState & UIState & VersionsState & Actions;
 
 const initialEvent = buildDemoEvent();
 
@@ -80,6 +102,7 @@ export const useEventStore = create<Store>()(
       pickedGuestId: null,
       selectedTableId: null,
       camera: { x: 0, y: 0, scale: 1 },
+      versions: [],
 
       reset: () => {
         const fresh = buildDemoEvent();
@@ -222,6 +245,8 @@ export const useEventStore = create<Store>()(
       reseatAll: () => {
         const s = get();
         const previousAssignments = { ...s.assignments };
+        // Auto-snapshot so users can restore even if they dismiss the toast.
+        get().saveVersion("Before reseat all");
         // Run auto-seater against an emptied state so every guest is treated
         // as unseated. We call the pure helper directly with a synthetic state
         // to avoid mutating the store twice.
@@ -232,6 +257,47 @@ export const useEventStore = create<Store>()(
 
       setAssignments: (assignments) =>
         set(() => ({ assignments: { ...assignments }, pickedGuestId: null })),
+
+      saveVersion: (label) => {
+        const s = get();
+        const id = `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        const snapshot: VersionSnapshot = {
+          id,
+          label: (label && label.trim()) || new Date().toLocaleString(),
+          createdAt: Date.now(),
+          state: {
+            id: s.id,
+            name: s.name,
+            guests: s.guests,
+            tables: s.tables,
+            assignments: s.assignments,
+            constraints: s.constraints,
+          },
+        };
+        // Cap at 25 versions to keep localStorage manageable; drop the oldest.
+        set((cur) => ({
+          versions: [snapshot, ...cur.versions].slice(0, 25),
+        }));
+        return id;
+      },
+
+      restoreVersion: (id) => {
+        const v = get().versions.find((x) => x.id === id);
+        if (!v) return;
+        set(() => ({
+          id: v.state.id,
+          name: v.state.name,
+          guests: v.state.guests,
+          tables: v.state.tables,
+          assignments: v.state.assignments,
+          constraints: v.state.constraints,
+          pickedGuestId: null,
+          selectedTableId: null,
+        }));
+      },
+
+      deleteVersion: (id) =>
+        set((s) => ({ versions: s.versions.filter((v) => v.id !== id) })),
 
       importGuests: (rows) => {
         const existing = new Set(
@@ -273,6 +339,7 @@ export const useEventStore = create<Store>()(
         tables: s.tables,
         assignments: s.assignments,
         constraints: s.constraints,
+        versions: s.versions,
       }),
       version: 3,
       migrate: (persistedState, version) => {
