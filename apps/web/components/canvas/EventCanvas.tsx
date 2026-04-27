@@ -35,6 +35,7 @@ export function EventCanvas() {
   const camera = useEventStore((s) => s.camera);
   const setCamera = useEventStore((s) => s.setCamera);
   const tables = useEventStore((s) => s.tables);
+  const addTable = useEventStore((s) => s.addTable);
 
   // Resize observer
   React.useEffect(() => {
@@ -137,12 +138,32 @@ export function EventCanvas() {
     }
   };
 
+  // Right-click on empty canvas → add a table at the cursor's world position.
+  // Replaces the toolbar's old "+ Table" button: discoverable via the help
+  // strip and lands the table exactly where the user wanted it.
+  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!wrapRef.current) return;
+    // Allow right-clicks on overlay popovers / inputs to keep their native
+    // browser context menu. Only suppress when the target is the canvas
+    // wrapper or a descendant inside the Konva-rendered area.
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-overlay-ui]")) return;
+    e.preventDefault();
+    const rect = wrapRef.current.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const worldX = (screenX - offsetX) / camera.scale;
+    const worldY = (screenY - offsetY) / camera.scale;
+    addTable({ x: worldX, y: worldY });
+  };
+
   return (
     <div
       ref={wrapRef}
       className="relative h-full w-full overflow-hidden"
       onDragOver={onDragOver}
       onDrop={onDrop}
+      onContextMenu={handleContextMenu}
     >
       <Stage
         ref={stageRef}
@@ -584,8 +605,12 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
   return (
     <>
       <TableInspector />
-      <div className="pointer-events-none absolute inset-0 flex items-end justify-between p-4 text-xs text-muted-foreground">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-border bg-card/90 p-1 shadow-sm backdrop-blur">
+      <div
+        className="pointer-events-none absolute inset-0 flex items-end justify-between p-4 text-xs text-muted-foreground"
+        data-overlay-ui
+      >
+        <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-border bg-card/90 p-1 shadow-sm backdrop-blur">
+          {/* View group */}
           <button
             className="flex h-7 w-7 items-center justify-center rounded hover:bg-secondary"
             onClick={() =>
@@ -607,14 +632,17 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
           >
             +
           </button>
-          <span className="mx-1 h-4 w-px bg-border" />
           <button
-            className="rounded px-2 py-1 hover:bg-secondary"
+            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
             onClick={() => setCamera({ x: 0, y: 0, scale: 1 })}
+            aria-label="Reset view"
+            title="Reset view"
           >
-            Reset view
+            ⟲
           </button>
           <span className="mx-1 h-4 w-px bg-border" />
+
+          {/* Primary action */}
           <button
             className="rounded px-2 py-1 font-medium text-primary hover:bg-primary/10"
             onClick={runAutoSeat}
@@ -622,14 +650,9 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
           >
             ✨ Auto-seat
           </button>
-          <button
-            className="rounded px-2 py-1 font-medium text-primary hover:bg-primary/10"
-            onClick={runReseatAll}
-            title="Clear all assignments and reseat from scratch"
-          >
-            ↻ Reseat all
-          </button>
           <span className="mx-1 h-4 w-px bg-border" />
+
+          {/* Meta icons (already icon-only) */}
           <HistoryMenu
             versions={versions}
             saveVersion={saveVersion}
@@ -646,50 +669,29 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
           />
           <AISettingsButton />
           <span className="mx-1 h-4 w-px bg-border" />
-          <button
-            className="rounded px-2 py-1 font-medium hover:bg-secondary"
-            onClick={() => {
-              // World point under the viewport center, with a small jitter so
-              // repeated clicks don't pile tables on top of each other.
+
+          {/* Overflow */}
+          <OverflowMenu
+            onReseatAll={runReseatAll}
+            onAddTable={() => {
               const cx = -camera.x / camera.scale;
               const cy = -camera.y / camera.scale;
               const jitter = () => (Math.random() - 0.5) * 80;
               addTable({ x: cx + jitter(), y: cy + jitter() });
             }}
-          >
-            + Table
-          </button>
-          <span className="mx-1 h-4 w-px bg-border" />
-          <button
-            className="rounded px-2 py-1 font-medium hover:bg-secondary"
-            onClick={() => {
+            onExportPNG={() => {
               if (stageRef.current) exportPNG(stageRef.current, eventState.name);
             }}
-            title="Download seating chart as PNG"
-          >
-            ↓ PNG
-          </button>
-          <button
-            className="rounded px-2 py-1 font-medium hover:bg-secondary"
-            onClick={() => exportCSV(eventState)}
-            title="Download guest list as CSV"
-          >
-            ↓ CSV
-          </button>
-          <span className="mx-1 h-4 w-px bg-border" />
-          <button
-            className="rounded px-2 py-1 text-destructive hover:bg-destructive/10"
-            onClick={() => {
+            onExportCSV={() => exportCSV(eventState)}
+            onResetEvent={() => {
               if (confirm("Reset the demo event? All seating will be cleared.")) {
                 reset();
               }
             }}
-          >
-            Reset event
-          </button>
+          />
         </div>
         <div className="pointer-events-none rounded-md bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur">
-          Drag empty space to pan · Scroll to zoom · Drag tables to rearrange
+          Right-click canvas to add a table · Scroll to zoom · Drag to pan
         </div>
       </div>
 
@@ -970,6 +972,78 @@ function WorkspaceMenu({
               {error}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverflowMenu({
+  onReseatAll,
+  onAddTable,
+  onExportPNG,
+  onExportCSV,
+  onResetEvent,
+}: {
+  onReseatAll: () => void;
+  onAddTable: () => void;
+  onExportPNG: () => void;
+  onExportCSV: () => void;
+  onResetEvent: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const item = (label: string, onClick: () => void, destructive = false) => (
+    <li>
+      <button
+        onClick={() => {
+          onClick();
+          setOpen(false);
+        }}
+        className={
+          "block w-full px-3 py-2 text-left hover:bg-secondary " +
+          (destructive ? "text-destructive hover:bg-destructive/10" : "")
+        }
+      >
+        {label}
+      </button>
+    </li>
+  );
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More actions"
+        title="More actions"
+      >
+        ⋮
+      </button>
+      {open && (
+        <div
+          className="absolute bottom-full right-0 mb-2 w-48 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          role="menu"
+        >
+          <ul className="text-xs">
+            {item("↻ Reseat all", onReseatAll)}
+            {item("+ Add table", onAddTable)}
+            <li className="border-t border-border" />
+            {item("↓ Export PNG", onExportPNG)}
+            {item("↓ Export CSV", onExportCSV)}
+            <li className="border-t border-border" />
+            {item("Reset event", onResetEvent, true)}
+          </ul>
         </div>
       )}
     </div>
