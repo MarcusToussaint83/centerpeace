@@ -47,13 +47,15 @@ function buildSystemPrompt(body: ChatBody): string {
     "",
     `Event: ${state.name} \u00b7 ${total} guests \u00b7 ${state.tables.length} tables \u00b7 ${seated} seated.`,
     "",
-    "When you need to change the chart, call the `apply_change` tool. Each call is applied immediately and a version snapshot is taken first, so the human can undo via the History menu. Never call `apply_change` more than once per response \u2014 batch all changes into one payload.",
+    "When you need to change the chart, call the `apply_change` tool. Each call is applied immediately and a version snapshot is taken first, so the human can undo via the History menu. Never call `apply_change` more than once per response — batch all changes into one payload.",
     "",
     "Always include a one-sentence `note` summarising what you did and why. The human sees this in a toast.",
     "",
     "Respect existing must-not-sit-with constraints. If the human asks for something that violates them, point it out and ask for confirmation before applying.",
     "",
     "Reference seats with the format `<tableId>:<seatIndex>` (e.g. `t_3:0`). Indexes are 0-based.",
+    "",
+    "When adding tables, OMIT `x` and `y` unless the user has been specific about location. Centerpeace runs a grid packer that lays new tables out in a tidy row next to the existing chart automatically — much better than guessing coordinates that will collide.",
     "",
     "Current state (compact JSON):",
     JSON.stringify(
@@ -100,6 +102,46 @@ const applyChangeSchema = z.object({
     )
     .optional(),
   removeConstraints: z.array(z.string()).optional().describe("Constraint IDs to remove."),
+  addTables: z
+    .array(
+      z.object({
+        label: z.string().optional(),
+        shape: z.enum(["round", "rect"]).optional(),
+        capacity: z.number().int().min(1).max(24).optional(),
+        x: z
+          .number()
+          .optional()
+          .describe(
+            "Optional. Omit unless the user is explicit about location — Centerpeace will auto-place the table on a grid next to existing tables.",
+          ),
+        y: z.number().optional(),
+        rotation: z.number().optional(),
+      }),
+    )
+    .optional()
+    .describe(
+      "New tables to add. Coordinates are optional; Centerpeace runs a grid packer when omitted.",
+    ),
+  removeTables: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "IDs of tables to delete. Any seat assignments at those tables are also cleared.",
+    ),
+  updateTables: z
+    .record(
+      z.string(),
+      z.object({
+        label: z.string().optional(),
+        shape: z.enum(["round", "rect"]).optional(),
+        capacity: z.number().int().min(1).max(24).optional(),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        rotation: z.number().optional(),
+      }),
+    )
+    .optional()
+    .describe("Patches keyed by table ID (relabel, resize, move, rotate)."),
 });
 
 export async function POST(req: Request) {

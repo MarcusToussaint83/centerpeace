@@ -521,6 +521,9 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
           removeAssignments: payload.removeAssignments,
           addConstraints: payload.addConstraints,
           removeConstraints: payload.removeConstraints,
+          addTables: payload.addTables,
+          removeTables: payload.removeTables,
+          updateTables: payload.updateTables,
           label: payload.note ? `Agent · ${payload.note}` : undefined,
         });
         // Capture the version we just snapshotted so the toast Undo button
@@ -540,6 +543,9 @@ function CanvasOverlays({ stageRef }: { stageRef: React.RefObject<Konva.Stage | 
         const parts = [
           summary.moves ? `${summary.moves} placed` : null,
           summary.removed ? `${summary.removed} cleared` : null,
+          summary.tablesAdded ? `+${summary.tablesAdded} table${summary.tablesAdded === 1 ? "" : "s"}` : null,
+          summary.tablesRemoved ? `−${summary.tablesRemoved} table${summary.tablesRemoved === 1 ? "" : "s"}` : null,
+          summary.tablesUpdated ? `${summary.tablesUpdated} table${summary.tablesUpdated === 1 ? "" : "s"} edited` : null,
           summary.constraintsAdded ? `${summary.constraintsAdded} rule${summary.constraintsAdded === 1 ? "" : "s"}` : null,
           summary.constraintsRemoved ? `${summary.constraintsRemoved} rule${summary.constraintsRemoved === 1 ? "" : "s"} removed` : null,
         ].filter(Boolean);

@@ -92,13 +92,29 @@ go to the same archive with a \`.invalid\` suffix.
       "note": "Why."
     }
   ],
-  "removeConstraints": ["<constraintId>"]
+  "removeConstraints": ["<constraintId>"],
+  "addTables": [
+    {
+      "label": "Table 12",
+      "shape": "round",
+      "capacity": 8
+      // x and y are optional. If you omit them (or pass coordinates that
+      // collide), Centerpeace lays the new tables out on a grid next to
+      // the existing chart so they don't pile up on one spot.
+    }
+  ],
+  "removeTables": ["<tableId>"],
+  "updateTables": {
+    "<tableId>": { "label": "Sponsor table", "capacity": 10 }
+  }
 }
 \`\`\`
 
 All operation arrays are optional. \`assignments\` overwrites whatever was
 at that seat — and Centerpeace will pull the guest from any prior seat,
-so you don't need to write a paired \`removeAssignments\`.
+so you don't need to write a paired \`removeAssignments\`. Omit \`x\` and
+\`y\` from \`addTables\` entries when you don't have a strong opinion about
+where they go — Centerpeace's grid packer is usually what you want.
 
 ### Hard rules
 
@@ -234,6 +250,45 @@ export const APPLY_SCHEMA = {
     removeConstraints: {
       type: "array",
       items: { type: "string" },
+    },
+    addTables: {
+      type: "array",
+      description:
+        "New tables to create. x/y are optional — if omitted or colliding, Centerpeace places them on a grid next to the existing layout.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: { type: "string" },
+          shape: { enum: ["round", "rect"] },
+          capacity: { type: "integer", minimum: 1, maximum: 24 },
+          x: { type: "number" },
+          y: { type: "number" },
+          rotation: { type: "number" },
+        },
+      },
+    },
+    removeTables: {
+      type: "array",
+      description:
+        "Existing table IDs to remove. Any seat assignments at those tables are also cleared.",
+      items: { type: "string" },
+    },
+    updateTables: {
+      type: "object",
+      description: "Patches keyed by table id (relabel, resize, move, rotate).",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          label: { type: "string" },
+          shape: { enum: ["round", "rect"] },
+          capacity: { type: "integer", minimum: 1, maximum: 24 },
+          x: { type: "number" },
+          y: { type: "number" },
+          rotation: { type: "number" },
+        },
+      },
     },
   },
 } as const;

@@ -29,6 +29,26 @@ export interface ApplyPayload {
     note?: string;
   }>;
   removeConstraints?: string[];
+  addTables?: Array<{
+    label?: string;
+    shape?: "round" | "rect";
+    capacity?: number;
+    x?: number;
+    y?: number;
+    rotation?: number;
+  }>;
+  removeTables?: string[];
+  updateTables?: Record<
+    string,
+    Partial<{
+      label: string;
+      shape: "round" | "rect";
+      capacity: number;
+      x: number;
+      y: number;
+      rotation: number;
+    }>
+  >;
 }
 
 export type ValidateResult =

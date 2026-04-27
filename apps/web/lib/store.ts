@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
 import { autoSeat as runAutoSeat } from "./auto-seat";
+import { placeTables } from "./place-tables";
 import { buildDemoEvent } from "./seed";
 import {
   type Constraint,
@@ -101,9 +102,41 @@ interface Actions {
       note?: string;
     }>;
     removeConstraints?: string[];
+    /**
+     * New tables to create. `x` and `y` are optional — if omitted (or if the
+     * provided coordinates collide with an existing table) Centerpeace runs
+     * a grid-sweep packer so multiple tables don't pile up on one spot.
+     */
+    addTables?: Array<{
+      label?: string;
+      shape?: "round" | "rect";
+      capacity?: number;
+      x?: number;
+      y?: number;
+      rotation?: number;
+    }>;
+    /** Existing table ids to remove (also clears their seat assignments). */
+    removeTables?: string[];
+    /** Patches keyed by table id (e.g. relabel, resize, move). */
+    updateTables?: Record<string, Partial<{
+      label: string;
+      shape: "round" | "rect";
+      capacity: number;
+      x: number;
+      y: number;
+      rotation: number;
+    }>>;
     /** Optional label saved with the version snapshot. */
     label?: string;
-  }): { moves: number; removed: number; constraintsAdded: number; constraintsRemoved: number };
+  }): {
+    moves: number;
+    removed: number;
+    constraintsAdded: number;
+    constraintsRemoved: number;
+    tablesAdded: number;
+    tablesRemoved: number;
+    tablesUpdated: number;
+  };
   /** Run the deterministic auto-seater on the current state and return its result. */
   autoSeat(): import("./auto-seat").AutoSeatResult;
   /**
@@ -285,35 +318,99 @@ export const useEventStore = create<Store>()(
         const removed = (change.removeAssignments ?? []).length;
         const constraintsAdded = (change.addConstraints ?? []).length;
         const constraintsRemoved = (change.removeConstraints ?? []).length;
-        const total = moves + removed + constraintsAdded + constraintsRemoved;
-        if (total === 0) return { moves: 0, removed: 0, constraintsAdded: 0, constraintsRemoved: 0 };
+        const tablesAdded = (change.addTables ?? []).length;
+        const tablesRemoved = (change.removeTables ?? []).length;
+        const tablesUpdated = Object.keys(change.updateTables ?? {}).length;
+        const total =
+          moves + removed + constraintsAdded + constraintsRemoved + tablesAdded + tablesRemoved + tablesUpdated;
+        if (total === 0) {
+          return {
+            moves: 0,
+            removed: 0,
+            constraintsAdded: 0,
+            constraintsRemoved: 0,
+            tablesAdded: 0,
+            tablesRemoved: 0,
+            tablesUpdated: 0,
+          };
+        }
 
         // Snapshot first so the user can always undo, regardless of source.
         const label = change.label ?? `Agent · ${[
           moves ? `${moves} move${moves === 1 ? "" : "s"}` : null,
           removed ? `${removed} cleared` : null,
+          tablesAdded ? `${tablesAdded} table${tablesAdded === 1 ? "" : "s"} added` : null,
+          tablesRemoved ? `${tablesRemoved} table${tablesRemoved === 1 ? "" : "s"} removed` : null,
+          tablesUpdated ? `${tablesUpdated} table${tablesUpdated === 1 ? "" : "s"} edited` : null,
           constraintsAdded ? `${constraintsAdded} rule${constraintsAdded === 1 ? "" : "s"}` : null,
           constraintsRemoved ? `${constraintsRemoved} rule${constraintsRemoved === 1 ? "" : "s"} removed` : null,
         ].filter(Boolean).join(" + ")}`;
         get().saveVersion(label);
 
         set((s) => {
-          // Reverse-lookup so we can drop a guest from any seat where they
-          // were previously seated when an agent moves them.
-          const next: Record<SeatKey, GuestId> = { ...s.assignments };
+          // ----- Tables (do these first; affects assignment validity) -----
+          let tables = s.tables;
+
+          if (change.removeTables?.length) {
+            const removeSet = new Set(change.removeTables);
+            tables = tables.filter((t) => !removeSet.has(t.id));
+          }
+
+          if (change.updateTables) {
+            tables = tables.map((t) => {
+              const patch = change.updateTables?.[t.id];
+              return patch ? { ...t, ...patch } : t;
+            });
+          }
+
+          if (change.addTables?.length) {
+            const pending = change.addTables.map((p) => ({
+              shape: (p.shape ?? "round") as "round" | "rect",
+              capacity: p.capacity ?? 8,
+              x: p.x,
+              y: p.y,
+            }));
+            const positions = placeTables({ existing: tables, pending });
+            const fallbackLabel = (idx: number) =>
+              `Table ${tables.length + idx + 1}`;
+            const additions: typeof tables = change.addTables.map((p, i) => ({
+              id: `t_${Date.now().toString(36)}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+              label: p.label ?? fallbackLabel(i),
+              shape: (p.shape ?? "round") as "round" | "rect",
+              capacity: p.capacity ?? 8,
+              x: positions[i]?.x ?? 0,
+              y: positions[i]?.y ?? 0,
+              rotation: p.rotation ?? 0,
+            }));
+            tables = [...tables, ...additions];
+          }
+
+          // ----- Assignments -----
+          // Drop assignments for any seats whose table no longer exists.
+          const validTableIds = new Set(tables.map((t) => t.id));
+          const next: Record<SeatKey, GuestId> = {};
+          for (const [key, gid] of Object.entries(s.assignments)) {
+            const [tid] = key.split(":");
+            if (tid && validTableIds.has(tid)) next[key] = gid;
+          }
+
+          // Reverse-lookup so we can drop a guest from any prior seat when an
+          // agent moves them somewhere new.
           if (change.assignments) {
             const incomingGuestIds = new Set(Object.values(change.assignments));
             for (const key of Object.keys(next)) {
               if (next[key] && incomingGuestIds.has(next[key]!)) delete next[key];
             }
             for (const [seat, gid] of Object.entries(change.assignments)) {
-              next[seat] = gid;
+              const [tid] = seat.split(":");
+              if (tid && validTableIds.has(tid)) next[seat] = gid;
             }
           }
           if (change.removeAssignments) {
             for (const seat of change.removeAssignments) delete next[seat];
           }
 
+          // ----- Constraints -----
           let constraints = s.constraints;
           if (change.removeConstraints?.length) {
             const ids = new Set(change.removeConstraints);
@@ -332,10 +429,18 @@ export const useEventStore = create<Store>()(
             constraints = [...constraints, ...additions];
           }
 
-          return { assignments: next, constraints, pickedGuestId: null };
+          return { tables, assignments: next, constraints, pickedGuestId: null };
         });
 
-        return { moves, removed, constraintsAdded, constraintsRemoved };
+        return {
+          moves,
+          removed,
+          constraintsAdded,
+          constraintsRemoved,
+          tablesAdded,
+          tablesRemoved,
+          tablesUpdated,
+        };
       },
 
       autoSeat: () => {

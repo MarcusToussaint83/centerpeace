@@ -122,6 +122,9 @@ function ChatCard({
             removeAssignments: input.removeAssignments,
             addConstraints: input.addConstraints,
             removeConstraints: input.removeConstraints,
+            addTables: input.addTables,
+            removeTables: input.removeTables,
+            updateTables: input.updateTables,
             label: input.note ? `AI · ${input.note}` : undefined,
           });
           addToolResult({
